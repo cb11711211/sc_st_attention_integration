@@ -77,6 +77,7 @@ accesslogger.verbose('This is a verbose message')
 
 
 // exporting instance
+// could share the same instance across the application
 // file logger.js
 class Logger {
     constructor(name) {
@@ -93,3 +94,15 @@ module.exports = new Logger('default')
 // file main.js
 const logger = require('./logger')
 logger.log('This is a log message')
+
+
+// monkey patching
+// file pather.js
+require('./logger').customMsg = function() {
+    console.log('This is a custom message')
+}
+// file main.js
+require('./patcher')
+const logger = require('./logger')
+logger.customMsg()
+
