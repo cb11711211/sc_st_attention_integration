@@ -1,0 +1,4 @@
+# add folder node_js_design_patterns ignore
+node_js_design_patterns/
+# add file package.json
+package.json
