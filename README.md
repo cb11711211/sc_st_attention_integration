@@ -10,3 +10,7 @@ Here I will firstly construct a begining notebook storing many types of methods 
 
 # Data preprocessing
 There could be some alignment and difference between the gene expression profile and protein expression profile. In this project, we will implement some methods that could denoise the data and then align the multi-omics profiles to the same feature space.
+
+The data preprocessing should consider the situation that the coordinations of the proteomics and transcriptomics profiles are not consistent. So that we need to do some implementation for the profiles such as optimal transport (OT) algorithm.
+
+For this step, we will firstly implement the OT algorithm to align the two omics data. That the 
