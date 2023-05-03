@@ -1,3 +1,6 @@
+# add data folder ignore
+data/
+
 # add folder node_js_design_patterns ignore
 .ipynb_checkpoints/
 node_js_design_patterns/
