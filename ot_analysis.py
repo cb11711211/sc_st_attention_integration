@@ -1,10 +1,11 @@
 # %% import packages
-import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import scanpy as sc
-from scipy.sparse import coo_matrix
 import stereo as st
+from scipy.sparse import coo_matrix
+
 # %%
 gene_map = {
     "CD11c": "Itgax",
@@ -102,3 +103,34 @@ fig.tight_layout()
 adata.obs
 
 # %%
+adata
+# %%
+adata.X
+# %%
+print(adata.raw)
+import matplotlib.pyplot as plt
+# %%
+# Here we would like to discuss some of the basic assumptions for the st-CITE-seq data
+# The first assumption is that the protein count of one spot is mainly determinded by the RNA count
+# of the spot, and the second assumption is that the RNA count in neighbor spot also contribute to the
+# protein count through transfer function.
+# In summary, we could make the assumption that the protein count of one spot is a linear
+# combination of several different variables
+# Protein count of one spot = alpha * RNA count of the spot + beta * RNA count of neighbor spots + technical noise
+# In detail, we believe that protein count ~ NB distribution across the slice, and 
+# the RNA count ~ ZINB distribution, but these model should be check through BIC that whether they are the best model
+# if the model is not the best model, we could choose the model with the lowest BIC score
+# %% model the protein count of one spot
+import numpy as np
+import pandas as pd
+import pyro
+import pyro.distributions as dist
+import scanpy as sc
+import torch
+from pyro.infer import MCMC, NUTS, Predictive
+from pyro.infer.autoguide import (AutoDiagonalNormal, AutoMultivariateNormal,
+                                  init_to_mean)
+# %% read the protein and rna data
+rna_coordination, prot_coordination
+# %%
+
