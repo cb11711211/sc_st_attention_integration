@@ -207,7 +207,9 @@ axs[1].set_ylabel("Neighbor #Protein", fontsize=18)
 plt.tight_layout()
 plt.show()
 # %%
-
+import seaborn as sns
+# gene_data
+sns.pairplot(gene_data, kind="reg", diag_kind="kde")
 
 # %%
 formula = "Cd3g ~ np.log(Cd3g_prot) + np.log(prot_count_ni) + rna_count_ni"
@@ -221,25 +223,30 @@ from sklearn.linear_model import PoissonRegressor, GammaRegressor, TweedieRegres
 from sklearn.linear_model import Ridge, Lasso, ElasticNet
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
-from sklearn.compose import TransformedTargetRegressor
+from sklearn.compose import TransformedTargetRegressor, make_column_transformer
 from sklearn.metrics import mean_squared_error
 from sklearn.model_selection import GridSearchCV, train_test_split
 from scipy.stats import poisson, nbinom, randint
 from sklearn.utils import check_random_state
 
+def neg_bic_score(y_true, y_pred, n_features):
+    return -2 * mean_squared_error(y_true, y_pred) + n_features * np.log(len(y_true))
 
 def log_transform(x):
     return np.log(x + 1)
 
+def log_transform_inv(x):
+    return np.exp(x) - 1
+
 def poisson_glm(X, y, alpha=0.0, fit_intercept=True):
     glm = Pipeline(steps=[
-        ('scalar', StandardScaler),
+        ('scalar', StandardScaler()),
         ('model', TransformedTargetRegressor(
             regressor=PoissonRegressor(
                 alpha=alpha,
                 fit_intercept=fit_intercept), 
             func=log_transform, 
-            inverse_func=np.exp
+            inverse_func=log_transform_inv
             )
         )
     ])
@@ -250,7 +257,7 @@ def nb_glm(X, y, alpha=0.0, fit_intercept=True):
     def nb_ll(y, pred, alpha):
         return -nbinom.logpmf(y, alpha, pred/(alpha+pred))
     glm = Pipeline(steps=[
-        ('scalar', StandardScaler),
+        ('scalar', StandardScaler()),
         ('model', TransformedTargetRegressor(
             regressor=TweedieRegressor(
                 power=0,
@@ -258,11 +265,11 @@ def nb_glm(X, y, alpha=0.0, fit_intercept=True):
                 fit_intercept=fit_intercept,
                 max_iter=1000,
                 tol=1e-6,
-                link='log',
-                objective=nb_ll
+                link='log'
+                # objective=nb_ll
             ),
             func=log_transform,
-            inverse_func=np.exp
+            inverse_func=log_transform_inv
             )
         )
     ])
@@ -273,14 +280,14 @@ def zip_glm(X, y, alpha=0.0, fit_intercept=True):
     # def zip_ll(y, pred, alpha):
     #     return -np.log(1-alpha) - poisson.logpmf(y, pred)
     glm = Pipeline(steps=[
-        ('scalar', StandardScaler),
+        ('scalar', StandardScaler()),
         ('model', TransformedTargetRegressor(
             regressor=GammaRegressor(
                 alpha=alpha,
                 fit_intercept=fit_intercept
             ),
             func=log_transform,
-            inverse_func=np.exp)
+            inverse_func=log_transform_inv)
         )]
     )
     param_grid = {
@@ -291,7 +298,9 @@ def zip_glm(X, y, alpha=0.0, fit_intercept=True):
         'model__regressor__solver': ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga']
     }
     random_state = check_random_state(0)
-    grid_search = GridSearchCV(glm, param_grid, cv=5, scoring='neg_bic', n_jobs=16, iid=False, verbose=1)
+    grid_search = GridSearchCV(glm, param_grid, cv=5, 
+                               scoring='neg_bic', 
+                               n_jobs=16, verbose=1)
     grid_search.fit(X, y, model__sample_weight=random_state.randint(1, 100, size=len(y)))
     return grid_search.best_estimator_
 
@@ -299,7 +308,7 @@ def zinb_glm(X, y, alpha=0.0, fit_intercept=True):
     def zinb_ll(y, pred, alpha):
         return -nbinom.logpmf(y, alpha, pred/(alpha + pred))
     glm = Pipeline(steps=[
-        ('scalar', StandardScaler),
+        ('scalar', StandardScaler()),
         ('model', TransformedTargetRegressor(
             regressor=TweedieRegressor(
                 power=0,
@@ -307,11 +316,11 @@ def zinb_glm(X, y, alpha=0.0, fit_intercept=True):
                 fit_intercept=fit_intercept,
                 max_iter=1000,
                 tol=1e-6,
-                link='log',
-                objective=zinb_ll
+                link='log'
+                # objective=zinb_ll
             ),
             func=log_transform,
-            inverse_func=np.exp
+            inverse_func=log_transform_inv
             )
         )
     ])
@@ -324,7 +333,7 @@ def zinb_glm(X, y, alpha=0.0, fit_intercept=True):
         'model__regressor__solver': ['newton-cg', 'lbfgs', 'liblinear', 'sag', 'saga']
     }
     random_state = check_random_state(0)
-    grid_search = GridSearchCV(glm, param_grid, cv=5, scoring='neg_bic', n_jobs=16, iid=False, verbose=1)
+    grid_search = GridSearchCV(glm, param_grid, cv=5, scoring='neg_bic', n_jobs=16, verbose=1)
     grid_search.fit(X, y, model__sample_weight=random_state.randint(1, 100, size=len(y)))
     return grid_search.best_estimator_
 # %% split the data into X and y
@@ -332,14 +341,63 @@ X = gene_data[["rna_count_ni", "prot_count_ni", "Cd3g_prot"]]
 y = gene_data["Cd3g"]
 X_train, X_test, y_train, y_test = train_test_split(X.values, y.values, test_size=0.2, random_state=0)
 # %% fit the glm model
-# glm = poisson_glm(X_train, y_train)
-clf = PoissonRegressor()
-
+glm = poisson_glm(X_train, y_train)
 # %%
+glm.score(X_test, y_test)
+# %%
+nb_glm = nb_glm(X_train, y_train)
+nb_glm.score(X_test, y_test)
+# %%
+zip_glm = zip_glm(X_train, y_train)
+zip_glm.score(X_test, y_test)
+# %%
+# gene_data.fillna(0)
+# gene_data.isna().sum()
+df.isna().sum()
+# %%
+import statsmodels.formula.api as smf
 
+df = gene_data
 
-
-
+mask = np.random.rand(len(df)) < 0.8
+df_train = df[mask]
+df_test = df[~mask]
+ds = df.index.to_series()
+# df["Cd3g_prot"] = ds.dt.Cd3g_prot
+# df["rna_count_ni"] = ds.dt.rna_count_ni
+# df["prot_count_ni"] = ds.dt.prot_count_ni
+formula = "Cd3g ~ Cd3g_prot + prot_count_ni + rna_count_ni + 1"
+y_train, X_train = dmatrices(formula, df_train, return_type="dataframe")
+y_test, X_test = dmatrices(formula, df_train, return_type="dataframe")
+poisson_training_results = sm.GLM(y_train, X_train, family=sm.families.Poisson()).fit()
+print(poisson_training_results.summary())
+print(poisson_training_results.mu)
+print(len(poisson_training_results.mu))
+# %%
+# add the lambda vector to the df_train
+df_train['BB_LAMBDA'] = poisson_training_results.mu 
+# add the values of the dependent variable of the OLS regression
+df_train['AUX_OLS_DEP'] = df_train.apply(
+    lambda x: ((x["Cd3g"] - x["BB_LAMBDA"])**2 - x["BB_LAMBDA"]) / x["BB_LAMBDA"], axis=1)
+ols_formula = "AUX_OLS_DEP ~ BB_LAMBDA - 1"
+aux_olsr_results = smf.ols(ols_formula, df_train).fit()
+# get the alpha
+print(f"The OLSR regression params are: {aux_olsr_results.params}")
+# get the t-values
+print(f"The OLSR regression coefficient alpha: {aux_olsr_results.tvalues}")
+nb2_training_results = sm.GLM(y_train, X_train, family=sm.families.NegativeBinomial(alpha=aux_olsr_results.params[0])).fit()
+print(nb2_training_results.summary())
+# %% regress zip 
+formula = "Cd3g ~ np.log1p(Cd3g_prot) + np.log1p(prot_count_ni) + rna_count_ni + 1"
+y_train, X_train = dmatrices(formula, df_train, return_type="dataframe")
+y_test, X_test = dmatrices(formula, df_train, return_type="dataframe")
+# %%
+# X = df_train[["Cd3g_prot", "rna_count_ni", "prot_count_ni"]]
+# y = df_train["Cd3g"]
+model = sm.ZeroInflatedNegativeBinomialP(y_train, X_train, exog_infl=X_train, inflation='logit').fit()
+print(model.summary())
+# %%
+df_train
 
 
 
