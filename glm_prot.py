@@ -7,6 +7,7 @@ import scanpy as sc
 from scipy.sparse import coo_matrix
 import scipy.stats as stats
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 from patsy import dmatrices
 # %%
 gene_map = {
@@ -397,8 +398,54 @@ y_test, X_test = dmatrices(formula, df_train, return_type="dataframe")
 model = sm.ZeroInflatedNegativeBinomialP(y_train, X_train, exog_infl=X_train, inflation='logit').fit()
 print(model.summary())
 # %%
-df_train
+# plt.scatter(combine_data.mean())
+# combine_data.var()
+log_combine_data = np.log1p(combine_data)
+# plt.scatter(combine_data.mean(), combine_data.var())
+plt.scatter(log_combine_data.mean(), log_combine_data.var())
+plt.show()
+# %% scTransform analysis of the data
+size_factors = np.sum(combine_data, axis=0) / np.median(np.sum(combine_data, axis=0))
+data_scaled = combine_data / size_factors
+gene_means = combine_data.mean(axis=0)
+# print(gene_means.shape, size_factors.shape)
+glm_model = sm.GLM(gene_means, sm.add_constant(np.log1p(size_factors)), family=sm.families.NegativeBinomial())
+glm_result = glm_model.fit()
 
+def glm_transform(x):
+    mu = glm_result.predict(sm.add_constant(np.log1p(size_factors)))
+    var = np.sqrt(glm_result.mu + size_factors * glm_result.mu ** 2)
+    return (x - mu) / var
+
+data_transformed = glm_transform(data_scaled)
+# print(glm_result.summary())
+plt.scatter(data_transformed.mean(), data_transformed.var())
+plt.show()
+
+# %% using gamma-Poisson model to fit the data
+def gamma_poisson_glm(X, alpha=0.0, fit_intercept=True):
+    """
+    X: array-like to fit the glm model, containing the covariates
+    y: array-like to fit the glm model, containing the dependent variable
+    alpha: float, the size parameter of the gamma distribution
+    fit_intercept: bool, whether to fit the intercept or not
+    """
+    size_factor = np.sum(X, axis=0) / np.median(np.sum(X, axis=0))
+    data_scaled = X / size_factor
+    gene_means = X.mean(axis=0)
+    print(gene_means.shape, size_factor.shape)
+    glm_model = sm.GLM(gene_means, sm.add_constant(np.log1p(size_factor)), 
+                       family=sm.families.NegativeBinomial(alpha=alpha))
+    glm_result = glm_model.fit()
+    data_transformed = glm_transform(data_scaled)    
+    print(glm_result.summary())
+    plt.scatter(data_transformed.mean(), data_transformed.var())
+    plt.show()
+# %% search the best alpha for the gamma-Poisson model using the BIC score through sm.GLM
+alpha_list = [1e-3, 1e-2, 1e-1, 1, 1.5, 2]
+
+for alpha in alpha_list:
+    gamma_poisson_glm(combine_data, alpha)
 
 
 # %% transformation of prot and rna raw data
