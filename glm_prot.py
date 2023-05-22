@@ -487,7 +487,7 @@ def log_likelihood_zinb(y, X, coef):
     prob = alpha / (alpha + mu)
     loglik = np.sum(gammaln(size + y) - gammaln(y+1) - gammaln(size) + size * np.log(prob) + y * np.log(1 - prob + 1e-8))
     return loglik
-# %%
+
 def fit_glm(data, covariates):
     # fit poisson model
     poisson_coef = minimize(log_likelihood_poisson, x0=np.zeros(covariates.shape[1]), args=(covariates, data)).x
@@ -552,3 +552,6 @@ def sctransform(data, size_factors, covariates):
     # normalize the data using the normalization factors
     data_norm = data.multiply(1 / norm_factors[:, None])
     return data_norm, norm_factors
+
+
+# %%
