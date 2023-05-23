@@ -107,7 +107,7 @@ def stTransform(X, adjacent_mtx, alpha=0.01, fit_intercept=True, zero_inflated=F
     """
     # spot_size_factor = np.asarray(X.sum(axis=0) / X.median(np.sum(X, axis=0)))
     adjacent_mtx = np.eye(adjacent_mtx.shape[0]) + adjacent_mtx
-    spot_size_factor = np.asarray(adjacent_mtx.dot(X).sum(axis=0) / np.median(adjacent_mtx.dot(X)))
+    spot_size_factor = np.asarray(adjacent_mtx.dot(X).sum(axis=0) / np.median(adjacent_mtx.dot(X)).sum(axis=0))
     X_scaled = X / spot_size_factor
     gene_means = np.asarray(adjacent_mtx.dot(X).mean(axis=0))
     # fit the glm model for the spot size factor and neighbor size factor
@@ -134,7 +134,7 @@ def stTransform(X, adjacent_mtx, alpha=0.01, fit_intercept=True, zero_inflated=F
 col_names = combine_data.columns.str.endswith("_prot")
 protein_count = combine_data.loc[:,col_names]
 #%%
-protein_count_transformed = stTransform(protein_count, adj_mtx, alpha=0.01, zero_inflated=True)
+protein_count_transformed = stTransform(protein_count, adj_mtx, alpha=0.01, zero_inflated=False)
 # %%
 # X = protein_count
 adjacent_mtx = adj_mtx
@@ -155,7 +155,6 @@ else:
 glm_results = glm_model.fit()
 # %%
 glm_results.summary()
-# %%
-spot_size_factor
-# %%
-y, X
+
+
+
