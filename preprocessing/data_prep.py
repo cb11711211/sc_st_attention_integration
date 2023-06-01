@@ -156,5 +156,16 @@ glm_results = glm_model.fit()
 # %%
 glm_results.summary()
 
+# %%
+import pandas as pd
 
+df1 = pd.DataFrame({'A': ['A0', 'A1', 'A2', 'A3'],
+                    'B': ['B0', 'B1', 'B2', 'B3']},
+                    index=[0, 1, 2, 3])
+df2 = pd.DataFrame({'C': ['C2', 'C3', 'C4', 'C5'],
+                    'D': ['D2', 'D3', 'D4', 'D5']},
+                    index=[0, 1, 2, 3])
 
+df3 = pd.merge(df1, df2, left_index=True, right_index=True)
+df3
+# %%
