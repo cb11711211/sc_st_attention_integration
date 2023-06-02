@@ -106,6 +106,45 @@ class GAT(nn.Module):
         """
         Softmax over the neighborhoods.
         """
+        # calculate the numeraotr
+        scores_per_edge = scores_per_edge - scores_per_edge.max()
+        exp_scores_per_edge = scores_per_edge.exp()
+        neighborhood_aware_denominator = self.sum_edge_scores_neighborhood_aware(exp_scores_per_edge, trg_index, num_nodes)
+        attention_per_edge = exp_scores_per_edge / (neighborhood_aware_denominator + 1e-16)
+        # (E, H) -> (E, H, 1)
+        return attention_per_edge.unsqueeze(-1)
+    
+    def sum_edge_scores_neighborhood_aware(self, exp_scores_per_edge, trg_index, num_nodes):
+        trg_index_broadcasted = self.explicit_broadcast(trg_index, exp_scores_per_edge)
+
+        # shape: (N, H)
+        size = list(exp_scores_per_edge.shape)
+        size[0] = num_nodes
+        neighborhood_sums = torch.zeros(size, dtype=exp_scores_per_edge.dtype, device=exp_scores_per_edge.device)
+        # position i will contain a sum of exp scores of all edges point to the node i
+        neighborhood_sums.scatter_add_(0, trg_index_broadcasted, exp_scores_per_edge)
+        # shape (N, H) -> (E, H)
+        return neighborhood_sums.index_select(0, trg_index)
+
+    def aggregate_neighbors(self, nodes_feature_proj_lifted_weighted, edge_index, in_nodes_features, num_nodes):
+        """
+        Aggregates the embeddings of the neighbors and the center nodes.
+        """
+        # shape: (E, H, F_out) -> (N, H, F_out), where N is the number of nodes
+        size = list(nodes_feature_proj_lifted_weighted.shape)
+        size[0] = num_nodes
+        out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
+        # shape (E) -> (E, H, F_out)
+        trg_index_broadcasted = self.explicit_broadcast(edge_index[1], nodes_feature_proj_lifted_weighted)
+        # shape (E, H, F_out) -> (N, H, F_out)
+        out_nodes_features.scatter_add_(0, trg_index_broadcasted, nodes_feature_proj_lifted_weighted)
+        return out_nodes_features
+
+    def explicit_broadcast(self, src, trg):
+        # src is shape (E) and trg is shape (E, H, F_out)
+        for _ in range(src.dim(), trg.dim()):
+            src = src.unsqueeze(-1)
+        return src.expand_as(trg)
     
     def lift(self, scores_source, scores_target, nodes_feature_proj, edge_index):
         """
@@ -143,6 +182,7 @@ class GAT(nn.Module):
         # apply the scoring function (* represents element-wise (a.k.a. Hadamard) product)
         # (N, H, F_out) * (1, H, F_out) -> (N, H, 1) /-> (N, H)
         if self.linear_proj:
+            print(nodes_feature_proj.shape, self.scoring_fn_source.shape)
             scores_source = (nodes_feature_proj * self.scoring_fn_source).sum(dim=-1)
             scores_target = (nodes_feature_proj * self.scoring_fn_target).sum(dim=-1)
             # score shape: (E, H), nodes_features_proj_lifted shape: (E, H, F_out), E -> number of edges 
