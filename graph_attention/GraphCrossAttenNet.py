@@ -38,6 +38,13 @@ class GraphCrossAttenNet(nn.Module):
     
 
 class CrossAttnLayer(nn.Module):
+    """
+    Here, we implement the cross attention layer.
+    The input of the layer contains two parts:
+        1. The graph attention network output of the transcriptomics
+        2. The graph attention network output of the last cross-attention layer
+    
+    """
     src_nodes_dim = 0
     trg_nodes_dim = 1
     nodes_dim = 0
@@ -58,4 +65,4 @@ class CrossAttnLayer(nn.Module):
         self.num_out_features = num_out_features
         self.concat = concat
         self.add_skip_connection = add_skip_connection
-        
+    

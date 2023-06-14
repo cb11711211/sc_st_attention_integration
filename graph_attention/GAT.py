@@ -58,7 +58,7 @@ class GATLayer(torch.nn.Module):
 
         self.linear_proj = nn.Linear(num_in_features, num_heads * num_out_features, bias=False)
 
-        self.scoring_fn_target = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
+        self.scoring_fn_trg = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
         self.scoring_fn_source = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
 
         if bias and concat:
@@ -85,7 +85,7 @@ class GATLayer(torch.nn.Module):
 
     def init_params(self):
         nn.init.xavier_uniform_(self.linear_proj.weight)
-        nn.init.xavier_uniform_(self.scoring_fn_target)
+        nn.init.xavier_uniform_(self.scoring_fn_trg)
         nn.init.xavier_uniform_(self.scoring_fn_source)
 
         if self.bias is not None:
@@ -132,7 +132,7 @@ class GATLayer(torch.nn.Module):
     
     def sum_edge_scores_neighborhood_aware(self, exp_scores_per_edge, trg_index, num_nodes):
         """
-        Sum edge scores for every target node in a neighborhood-aware fashion.
+        Sum edge scores for every trg node in a neighborhood-aware fashion.
         exp_scores_per_edge: (E, H)
         trg_index: (E)
         num_nodes: (N)
@@ -159,14 +159,22 @@ class GATLayer(torch.nn.Module):
         return x.expand_as(y)
 
     def aggregate_neighbors(self, nodes_features_proj_lifted_weighted, edge_index, in_nodes_features, num_nodes):
-        size = list(nodes_features_proj_lifted_weighted.shape)
-        size[self.nodes_dim] = num_nodes
+        """
+        Aggregate all neigbors' features and the source node's own features.
+        nodes_features_proj_lifted_weighted: (E, H)
+        edge_index: (2, E)
+        in_nodes_features: (N, F_in)
+        num_nodes: (N)
+        """
+        size = list(nodes_features_proj_lifted_weighted.shape) # (E, H)
+        size[self.nodes_dim] = num_nodes # (N, H)
         out_nodes_features = torch.zeros(size, dtype=in_nodes_features.dtype, device=in_nodes_features.device)
+        # explicitly broadcast all source node features to its neighboring target nodes
         trg_index_broadcasted = self.explicit_broadcast(edge_index[self.trg_nodes_dim], nodes_features_proj_lifted_weighted)
         out_nodes_features.scatter_add_(self.nodes_dim, trg_index_broadcasted, nodes_features_proj_lifted_weighted)
         return out_nodes_features
     
-    def lift(self, score_src, score_target, nodes_features_matrix_proj, edge_index):
+    def lift(self, score_src, score_trg, nodes_features_matrix_proj, edge_index):
         """
         Lifts the edges' features to the nodes' features.
         """
@@ -174,7 +182,7 @@ class GATLayer(torch.nn.Module):
         trg_nodes_index = edge_index[self.trg_nodes_dim]
 
         scores_src = score_src.index_select(self.nodes_dim, src_nodes_index)
-        scores_trg = score_target.index_select(self.nodes_dim, trg_nodes_index)
+        scores_trg = score_trg.index_select(self.nodes_dim, trg_nodes_index)
         nodes_features_matrix_proj_lifted = nodes_features_matrix_proj.index_select(self.nodes_dim, src_nodes_index)
         return scores_src, scores_trg, nodes_features_matrix_proj_lifted
     
@@ -193,7 +201,7 @@ class GATLayer(torch.nn.Module):
 
         # step2: Compute edge attention scores
         scores_src = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
-        scores_trg = (nodes_features_proj * self.scoring_fn_target).sum(dim=-1)
+        scores_trg = (nodes_features_proj * self.scoring_fn_trg).sum(dim=-1)
 
         scores_src_lifted, scores_trg_lifted, nodes_features_proj_lifted = self.lift(scores_src, scores_trg, nodes_features_proj, edge_index)
         scores_per_edge = self.leakyReLU(scores_src_lifted + scores_trg_lifted)
@@ -217,7 +225,7 @@ class GATLayer(torch.nn.Module):
 # For the layers in the same GAT block, we share the same attention weights and biases
 # Explain each steps in the forward function:
 # 1. Linear Projection: project the input features to the same dimension as the output features
-# 2. Compute edge attention scores: compute the attention scores for each edge in the graph, the scores are computed based on the source and target nodes' features
-# 3. Neighborhood aggregation: aggregate the neighbors' features to update the target nodes' features
+# 2. Compute edge attention scores: compute the attention scores for each edge in the graph, the scores are computed based on the source and trg nodes' features
+# 3. Neighborhood aggregation: aggregate the neighbors' features to update the trg nodes' features
 # 4. Residual/skip connections, concat and bias: add the skip connection, concat the multi-heads' features and add the bias term
 
