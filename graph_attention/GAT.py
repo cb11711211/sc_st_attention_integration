@@ -59,7 +59,7 @@ class GATLayer(torch.nn.Module):
         self.linear_proj = nn.Linear(num_in_features, num_heads * num_out_features, bias=False)
 
         self.scoring_fn_trg = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
-        self.scoring_fn_source = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
+        self.scoring_fn_src = nn.Parameter(torch.Tensor(1, num_heads, num_out_features))
 
         if bias and concat:
             self.bias = nn.Parameter(torch.Tensor(num_heads * num_out_features))
@@ -86,12 +86,17 @@ class GATLayer(torch.nn.Module):
     def init_params(self):
         nn.init.xavier_uniform_(self.linear_proj.weight)
         nn.init.xavier_uniform_(self.scoring_fn_trg)
-        nn.init.xavier_uniform_(self.scoring_fn_source)
+        nn.init.xavier_uniform_(self.scoring_fn_src)
 
         if self.bias is not None:
             nn.init.zeros_(self.bias)
 
     def skip_concat_bias(self, attention_coefficients, in_nodes_features, out_nodes_features):
+        """
+        The skip connection, concatenation and addition of the bias term.
+        Used only if add_skip_connection=True.
+        
+        """
         if self.log_attention_weights:
             self.attention_weights = attention_coefficients
         
@@ -200,7 +205,7 @@ class GATLayer(torch.nn.Module):
         nodes_features_proj = self.dropout(nodes_features_proj)
 
         # step2: Compute edge attention scores
-        scores_src = (nodes_features_proj * self.scoring_fn_source).sum(dim=-1)
+        scores_src = (nodes_features_proj * self.scoring_fn_src).sum(dim=-1)
         scores_trg = (nodes_features_proj * self.scoring_fn_trg).sum(dim=-1)
 
         scores_src_lifted, scores_trg_lifted, nodes_features_proj_lifted = self.lift(scores_src, scores_trg, nodes_features_proj, edge_index)
@@ -216,11 +221,9 @@ class GATLayer(torch.nn.Module):
         # step4: Residual/skip connections, concat and bias
         out_nodes_features = self.skip_concat_bias(attention_per_edge, in_nodes_features, out_nodes_features)
 
-        # construct the new data, data[0] is the features of the nodes, and data[1] is the adjacent matrix
-        output = (out_nodes_features, edge_index)
+        self.attention_mask = attention_per_edge
 
-        # after the self-attention layers, we get the new node features and the updated adjacency matrix
-        return output
+        return (out_nodes_features, edge_index)
     
 # For the layers in the same GAT block, we share the same attention weights and biases
 # Explain each steps in the forward function:

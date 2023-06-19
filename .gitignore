@@ -7,3 +7,5 @@ node_js_design_patterns/
 # add file package.json
 package.json
 .ipynb_checkpoints/pot_fuse_prot_rna-checkpoint.ipynb
+# add folder __pycache__
+__pycache__/
