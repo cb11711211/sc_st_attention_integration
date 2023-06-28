@@ -25,16 +25,34 @@ def data_mask(matrix, mask_rate=0.3):
     mask = torch.rand(matrix.shape) < mask_rate
     zero_fill_mtx = np.where(mask, torch.tensor(0.0), matrix)
     min_fill_mtx = np.where(mask, torch.tensor(-10000.0), matrix)
-    zero_mask = mask & np.equal(matrix, zero_fill_mtx)
+    # zero_mask = np.equal(matrix, zero_fill_mtx)
+    zero_mask = np.equal(mask, np.equal(matrix, zero_fill_mtx))
     min_fill_mtx[zero_mask] = 0
-    return matrix
+    return min_fill_mtx
 # %%
 prot_data_masked = data_mask(prot_data, mask_rate=0.3)
 rna_data_masked = data_mask(rna_data, mask_rate=0.3)
 # %%
+from GraphCrossAttenNet import GraphCrossAttenNet
 
+rna_data_masked = torch.tensor(rna_data_masked, dtype=torch.float32)
+prot_data_masked = torch.tensor(prot_data_masked, dtype=torch.float32)
+edge_index_input = torch.tensor(edge_index.values, dtype=torch.long)
+data = (rna_data_masked, prot_data_masked, edge_index_input)
+Graph_Cross_Atten_Net = GraphCrossAttenNet(
+    prot_feature_dim=prot_data.shape[1],
+    rna_feature_dim=rna_data.shape[1],
+    num_layers=3,
+    num_heads_per_layer=[4, 4, 4],
+    num_features_per_layer=[1024, 1024, 1024, 1024],
+    add_skip_connection=True,
+    bias=True,
+    dropout=0.6,
+    log_attention_weights=False)
+
+result = Graph_Cross_Atten_Net(data)
 # %%
-
+edge_index
 # %%
 
 

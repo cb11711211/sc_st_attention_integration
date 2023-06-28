@@ -41,6 +41,7 @@ class GraphCrossAttenNet(nn.Module):
         self.prot_feature_dim = prot_feature_dim
         self.rna_feature_dim = rna_feature_dim
         # The graph attention network for RNA data
+        self.GAT_linear_proj = nn.Linear(rna_feature_dim, num_features_per_layer[0] * num_heads_per_layer[0])
         self.gat_net = nn.ModuleList()
         for i in range(num_layers):
             self.gat_net.append(
@@ -57,6 +58,8 @@ class GraphCrossAttenNet(nn.Module):
         # The graph cross attention network for multi-omics data
         # Here, the input of the graph cross attention layer is the concatenation of
         # the output of the last 1st path attention layer and the output of the last 2nd path attention layer.
+        self.cross_attn_linear_proj = nn.Linear(prot_feature_dim + rna_feature_dim, 
+            (num_features_per_layer[0] + prot_feature_dim) * num_heads_per_layer[0])
         self.cross_attn_net = nn.ModuleList()
         
         for i in range(num_layers):
@@ -81,6 +84,10 @@ class GraphCrossAttenNet(nn.Module):
         concat_data = torch.cat((rna_data, prot_data), dim=1)
         for i in range(len(self.gat_net)):
             if i == 0:
+                # The input of the first layer of the GAT should be linearly projected to the dim of input features.
+                rna_data = self.GAT_linear_proj(rna_data)
+                concat_data = self.cross_attn_linear_proj(concat_data)
+
                 gat_input = (rna_data, edge_index)
                 cross_attn_input = (concat_data, edge_index)
 
