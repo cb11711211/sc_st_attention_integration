@@ -3,7 +3,8 @@ from torch.utils.data import Dataset, DataLoader
 class GraphDataset(Dataset):
     def __init__(self, data, adj_mtx):
         self.data = data
-        self.adj_mtx = adj_mtx
+        edge_index = adj_mtx.nonzero(as_tuple=False).t()
+        self.edge_index = edge_index
     
     def __len__(self):
         return len(self.data)

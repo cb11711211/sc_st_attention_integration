@@ -79,4 +79,13 @@ Graph_Cross_Atten_Net = GraphCrossAttenNet(
 Graph_Cross_Atten_Net(data)
 # %%
 Graph_Cross_Atten_Net(data)[0].shape, Graph_Cross_Atten_Net(data)[1].shape
+# %% prepare the data that really needed in the input of the GraphCrossAttenNet
+from GraphCrossAttenNet import GraphCrossAttenNet
+import torch
+from torch import nn
+from GAT import GAT
+import numpy as np
+import pandas as pd
+
 # %%
+root_dir = ""
