@@ -42,6 +42,7 @@ class GraphCrossAttenNet(nn.Module):
         self.rna_feature_dim = rna_feature_dim
         # The graph attention network for RNA data
         self.GAT_linear_proj = nn.Linear(rna_feature_dim, num_features_per_layer[0] * num_heads_per_layer[0])
+        self.GAT_reproj = nn.Linear(num_features_per_layer[0] * num_heads_per_layer[0], rna_feature_dim)
         self.gat_net = nn.ModuleList()
         for i in range(num_layers):
             self.gat_net.append(
@@ -60,6 +61,8 @@ class GraphCrossAttenNet(nn.Module):
         # the output of the last 1st path attention layer and the output of the last 2nd path attention layer.
         self.cross_attn_linear_proj = nn.Linear(prot_feature_dim + rna_feature_dim, 
             (num_features_per_layer[0] + prot_feature_dim) * num_heads_per_layer[0])
+        self.cross_attn_reproj = nn.Linear((num_features_per_layer[0] + prot_feature_dim) * num_heads_per_layer[0],
+            prot_feature_dim + rna_feature_dim)
         self.cross_attn_net = nn.ModuleList()
         
         for i in range(num_layers):
@@ -109,6 +112,8 @@ class GraphCrossAttenNet(nn.Module):
             self_layer_attention_weights.append(self.gat_net[i].attention_mask)
             cross_layer_attention_weights.append(self.cross_attn_net[i].attention_mask)
         # return (self_layer_attention_weights, cross_layer_attention_weights)
+        gat_output = self.GAT_reproj(gat_output)
+        cross_attn_output = self.cross_attn_reproj(cross_attn_output)
         return (gat_output, cross_attn_output)
 
 
