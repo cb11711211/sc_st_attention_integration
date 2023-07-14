@@ -100,14 +100,19 @@ class GATLayer(torch.nn.Module):
         if self.log_attention_weights:
             self.attention_weights = attention_coefficients
         
+        # check if the out_nodes_features are contiguous or not,
+        # if it is not, it could cause errors in concatenation
         if not out_nodes_features.is_contiguous():
             out_nodes_features = out_nodes_features.contiguous()
 
+        # shape: (N, NH, F_out) -> (N, NH*F_out)
         if self.add_skip_connection:
-            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]:
+            if out_nodes_features.shape[-1] == in_nodes_features.shape[-1]: # if dim(F_in) == dim(F_out)
                 # (N, F_in) -> (N, 1, F_in)
                 out_nodes_features += in_nodes_features.unsqueeze(1)
             else:
+                # skip_proj: (N, F_in) -> (N, NH * F_out)
+                # view: (N, NH * F_out) -> (N, NH, F_out)
                 out_nodes_features += self.skip_proj(in_nodes_features).view(-1, self.num_heads, self.num_out_features)
 
         if self.concat:
@@ -115,6 +120,7 @@ class GATLayer(torch.nn.Module):
         else:
             out_nodes_features = out_nodes_features.mean(dim=self.head_dim)
 
+        # add the bias means that each head has its own bias and the bias is not shared
         if self.bias is not None:
             out_nodes_features += self.bias
 
@@ -222,7 +228,7 @@ class GATLayer(torch.nn.Module):
         out_nodes_features = self.skip_concat_bias(attention_per_edge, in_nodes_features, out_nodes_features)
 
         self.attention_mask = attention_per_edge
-
+        # out_nodes_features: (N, NH, F_out) or (N, F_out) if concat=False
         return (out_nodes_features, edge_index)
     
 # For the layers in the same GAT block, we share the same attention weights and biases

@@ -22,16 +22,12 @@ def data_mask(matrix, mask_rate=0.3):
     # mask the input matrix, and the masked zero will be set to -10000, 
     # while the masked non-zero will be set to 0
     matrix = matrix.clone()
-    mask = torch.rand(matrix.shape) < mask_rate
-    zero_fill_mtx = np.where(mask, torch.tensor(0.0), matrix)
-    min_fill_mtx = np.where(mask, torch.tensor(-10000.0), matrix)
-    # zero_mask = np.equal(matrix, zero_fill_mtx)
+    mask = torch.rand(matrix.shape).lt(mask_rate)
+    zero_fill_mtx = torch.where(mask, torch.tensor(0.0), matrix)
+    min_fill_mtx = torch.where(mask, torch.tensor(-10000.0), matrix)
     zero_mask = np.equal(mask, np.equal(matrix, zero_fill_mtx))
-    min_fill_mtx[zero_mask] = 0
+    min_fill_mtx = torch.where(zero_mask, torch.tensor(0.0), min_fill_mtx)
     return min_fill_mtx
-# %%
-prot_data_masked = data_mask(prot_data, mask_rate=0.3)
-rna_data_masked = data_mask(rna_data, mask_rate=0.3)
 # %%
 from GraphCrossAttenNet import GraphCrossAttenNet
 
@@ -79,30 +75,35 @@ def train(model, data, optimizer, loss_function, epochs=100):
     model.train()
     for epoch in range(epochs):
         optimizer.zero_grad()
-        # gat_input, prot_data, edge_index = data
-        gat_input, prot_data, edge_index = construct_masked_data(data, mask_rate=0.3)
+        (gat_input, prot_data, edge_index) = data
+        # gat_input, prot_data, edge_index = construct_masked_data(data, mask_rate=0.3)
+        gat_input = data_mask(rna_data, mask_rate=0.3)
+        prot_data = data_mask(prot_data, mask_rate=0.3)
         concat_data = torch.cat((gat_input, prot_data), dim=1)
-        masked_data = (gat_input, concat_data, edge_index)
+        masked_data = (gat_input, prot_data, edge_index)
         gat_output, cross_attn_output = model(masked_data)
         # loss is the sum of the weighted loss of the two parts
         loss = loss_function(gat_output, gat_input) + loss_function(cross_attn_output, concat_data)
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         loss.backward()
         optimizer.step()
         if epoch % 10 == 0:
             print(f"Epoch: {epoch}, Loss: {loss.item()}")
 # %%
 train(Graph_Cross_Atten_Net, data, optimizer, loss_function, epochs=100)
-# %% try to find which part of the code is the most time consuming
+# %%
+# data_masked = construct_masked_data(data, mask_rate=0.3)
 matrix = rna_data.clone()
 mask = torch.rand(matrix.shape).lt(mask_rate)
-zero_fill_mtx = np.where(mask, torch.tensor(0.0), matrix)
-min_fill_mtx = np.where(mask, torch.tensor(-10000.0), matrix)
+zero_fill_mtx = torch.where(mask, torch.tensor(0.0), matrix)
+min_fill_mtx = torch.where(mask, torch.tensor(-10000.0), matrix)
 zero_mask = np.equal(mask, np.equal(matrix, zero_fill_mtx))
-min_fill_mtx = np.where(zero_mask, torch.tensor(0.0), min_fill_mtx)
-# min_fill_mtx[zero_mask] = 0
 # %%
-torch.rand(matrix.shape).lt(mask_rate)
+prot_data.shape
+# min_fill_mtx = np.where(zero_mask, torch.tensor(0.0), min_fill_mtx)
+# zero_mask
+# min_fill_mtx, zero_fill_mtx
+# np.equal(matrix, zero_fill_mtx)
 # %%
 import numpy as np
 import matplotlib.pyplot as plt
