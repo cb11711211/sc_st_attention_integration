@@ -117,13 +117,12 @@ class GraphCrossAttenNet(nn.Module):
                 # after concat, the shape of the cross_attn_input is (N, NH, F_rna+F_prot)
 
                 num_heads = self.cross_attn_net[i-1].num_heads
-                cross_attn_input_from_rna = cross_attn_input_from_rna.view(-1, num_heads, cross_attn_input_from_rna.shape[1])
-                
+                cross_attn_input_from_rna = cross_attn_input_from_rna.view(-1, 
+                                                num_heads, int(cross_attn_input_from_rna.shape[1] / num_heads))
 
                 # cross_attn_input_from_rna shape: (N, NH, F_rna)
                 # cross_attn_input_from_mo shape: (N, NH, F_rna+F_prot)
                 # cross_attn_input shape: (N, NH, F_rna+F_prot)
-                
                 cross_attn_input[:, :, :cross_attn_input_from_rna.shape[1]] = cross_attn_input_from_rna + cross_attn_input_from_mo[:, :, :cross_attn_input_from_rna.shape[1]]
                 cross_attn_input[:, :, cross_attn_input_from_rna.shape[1]:] = cross_attn_input_from_mo[:, :, cross_attn_input_from_rna.shape[1]:]
                 cross_attn_input = (cross_attn_input, edge_index)
