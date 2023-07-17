@@ -100,15 +100,15 @@ class GraphCrossAttenNet(nn.Module):
                 gat_output, _ = self.gat_net[i](gat_input)
                 cross_attn_output, _ = self.cross_attn_net[i](cross_attn_input)
             else:
-                gat_input = (gat_output, edge_index) 
+                gat_input = (gat_output, edge_index)
                 cross_attn_input_from_rna = gat_output
-                cross_attn_input_from_prot = cross_attn_output
+                cross_attn_input_from_mo = cross_attn_output
 
-                # shape of gat_input = (N, )
+                # shape of gat_output = (N, F_rna)
+                # shape of cross_attn_output = (N, F_rna + F_prot)
 
                 # The input of teh cross attention network is the average of the two parts
-                cross_attn_input = torch.zeros_like(cross_attn_input_from_prot) # shape: (N, F_rna+F_prot)
-                
+                cross_attn_input = torch.zeros_like(cross_attn_input_from_mo) # shape: (N, F_rna+F_prot)
                 
                 # Here is very important, we should use the attention from the previous layer to mask the input of the cross attention layer.
                 # Get the number of head in this layer
@@ -117,10 +117,15 @@ class GraphCrossAttenNet(nn.Module):
                 # after concat, the shape of the cross_attn_input is (N, NH, F_rna+F_prot)
 
                 num_heads = self.cross_attn_net[i-1].num_heads
-                cross_attn_input = cross_attn_input.view(-1, num_heads, cross_attn_input.shape[1])
+                cross_attn_input_from_rna = cross_attn_input_from_rna.view(-1, num_heads, cross_attn_input_from_rna.shape[1])
+                
 
-                cross_attn_input[:, :cross_attn_input_from_rna.shape[1], :] = cross_attn_input_from_rna + cross_attn_input_from_prot[:, :cross_attn_input_from_rna.shape[1], :]
-                cross_attn_input[:, cross_attn_input_from_rna.shape[1]:, :] = cross_attn_input_from_prot[:, cross_attn_input_from_rna.shape[1]:, :]
+                # cross_attn_input_from_rna shape: (N, NH, F_rna)
+                # cross_attn_input_from_mo shape: (N, NH, F_rna+F_prot)
+                # cross_attn_input shape: (N, NH, F_rna+F_prot)
+                
+                cross_attn_input[:, :, :cross_attn_input_from_rna.shape[1]] = cross_attn_input_from_rna + cross_attn_input_from_mo[:, :, :cross_attn_input_from_rna.shape[1]]
+                cross_attn_input[:, :, cross_attn_input_from_rna.shape[1]:] = cross_attn_input_from_mo[:, :, cross_attn_input_from_rna.shape[1]:]
                 cross_attn_input = (cross_attn_input, edge_index)
 
                 gat_output, _ = self.gat_net[i](gat_input)
@@ -132,8 +137,6 @@ class GraphCrossAttenNet(nn.Module):
         gat_output = self.GAT_reproj(gat_output)
         cross_attn_output = self.cross_attn_reproj(cross_attn_output)
         return (gat_output, cross_attn_output)
-
-
 
 
 class CrossAttnLayer(GATLayer):
