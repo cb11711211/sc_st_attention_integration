@@ -24,7 +24,8 @@ class GAT(nn.Module):
                 dropout_prob=dropout,
                 add_skip_connection=add_skip_connection,
                 bias=bias,
-                log_attention_weights=log_attention_weights
+                log_attention_weights=log_attention_weights,
+                layer_id=-1 if i == num_layers - 1 else i,
             )
             gat_layers.append(layer)
         
@@ -48,13 +49,16 @@ class GATLayer(torch.nn.Module):
                  dropout_prob=0.6, 
                  add_skip_connection=True, 
                  bias=True, 
-                 log_attention_weights=False):
+                 log_attention_weights=False,
+                 layer_id=0):
         super().__init__()
 
+        self.num_in_features = num_in_features
         self.num_heads = num_heads
         self.num_out_features = num_out_features
         self.concat = concat
         self.add_skip_connection = add_skip_connection
+        self.layer_id = layer_id
 
         self.linear_proj = nn.Linear(num_in_features, num_heads * num_out_features, bias=False)
 
@@ -115,6 +119,7 @@ class GATLayer(torch.nn.Module):
                 # view: (N, NH * F_out) -> (N, NH, F_out)
                 out_nodes_features += self.skip_proj(in_nodes_features).view(-1, self.num_heads, self.num_out_features)
 
+        # the last layer does not need concatenation of multi-heads
         if self.concat:
             out_nodes_features = out_nodes_features.view(-1, self.num_heads * self.num_out_features)
         else:
@@ -206,6 +211,7 @@ class GATLayer(torch.nn.Module):
         num_nodes = in_nodes_features.shape[0]
         assert edge_index.shape[0] == 2, f"Expected edge index with shape=(2,E) got {edge_index.shape}"
 
+        in_nodes_features = in_nodes_features.view(-1, self.num_in_features)
         in_nodes_features = self.dropout(in_nodes_features)
         nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_heads, self.num_out_features)
         nodes_features_proj = self.dropout(nodes_features_proj)
@@ -228,7 +234,9 @@ class GATLayer(torch.nn.Module):
         out_nodes_features = self.skip_concat_bias(attention_per_edge, in_nodes_features, out_nodes_features)
 
         self.attention_mask = attention_per_edge
-        # out_nodes_features: (N, NH, F_out) or (N, F_out) if concat=False
+        # out_nodes_features: (N, NH, F_out) or (N, F_out*NH) if concat=False
+        if not self.layer_id == -1:
+            out_nodes_features = out_nodes_features.view(-1, self.num_heads, self.num_out_features)
         return (out_nodes_features, edge_index)
     
 # For the layers in the same GAT block, we share the same attention weights and biases
@@ -237,4 +245,3 @@ class GATLayer(torch.nn.Module):
 # 2. Compute edge attention scores: compute the attention scores for each edge in the graph, the scores are computed based on the source and trg nodes' features
 # 3. Neighborhood aggregation: aggregate the neighbors' features to update the trg nodes' features
 # 4. Residual/skip connections, concat and bias: add the skip connection, concat the multi-heads' features and add the bias term
-

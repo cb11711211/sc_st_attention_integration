@@ -83,6 +83,7 @@ def train(model, data, optimizer, loss_function, epochs=100):
         masked_data = (gat_input, prot_data, edge_index)
         gat_output, cross_attn_output = model(masked_data)
         # loss is the sum of the weighted loss of the two parts
+        # print(gat_output.shape, gat_input.shape, cross_attn_output.shape, concat_data.shape)
         loss = loss_function(gat_output, gat_input) + loss_function(cross_attn_output, concat_data)
         # torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
         loss.backward()
@@ -91,4 +92,8 @@ def train(model, data, optimizer, loss_function, epochs=100):
             print(f"Epoch: {epoch}, Loss: {loss.item()}")
 # %%
 train(Graph_Cross_Atten_Net, data, optimizer, loss_function, epochs=100)
+# %%
+# torch.nn.Linear(10, 100)(torch.tensor(np.random.rand(1000, 10), dtype=torch.float32)).shape
+# %%
+# torch.concat((torch.randn((100, 10)), torch.randn((100, 1))), dim=1).shape
 # %%

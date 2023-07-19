@@ -55,16 +55,16 @@ class GraphCrossAttenNet(nn.Module):
                     dropout_prob=dropout, # dropout only for hidden layers
                     add_skip_connection=add_skip_connection,
                     bias=bias,
-                    log_attention_weights=log_attention_weights))
+                    log_attention_weights=log_attention_weights,
+                    layer_id=-1 if i == num_layers - 1 else i))
         # The graph cross attention network for multi-omics data
         # Here, the input of the graph cross attention layer is the concatenation of
         # the output of the last 1st path attention layer and the output of the last 2nd path attention layer.
-        self.cross_attn_linear_proj = nn.Linear(prot_feature_dim + rna_feature_dim, 
-            (num_features_per_layer[0] + prot_feature_dim))
-        self.cross_attn_reproj = nn.Linear((num_features_per_layer[0] + prot_feature_dim),
-            prot_feature_dim + rna_feature_dim)
+        # self.cross_attn_linear_proj = nn.Linear(prot_feature_dim + rna_feature_dim, 
+        #     (num_features_per_layer[0] + prot_feature_dim))
+        # self.cross_attn_reproj = nn.Linear((num_features_per_layer[0] + prot_feature_dim),
+        #     prot_feature_dim + rna_feature_dim)
         self.cross_attn_net = nn.ModuleList()
-        
         for i in range(num_layers):
             self.cross_attn_net.append(
                 CrossAttnLayer(
@@ -76,7 +76,8 @@ class GraphCrossAttenNet(nn.Module):
                     dropout_prob=dropout,
                     add_skip_connection=add_skip_connection,
                     bias=bias,
-                    log_attention_weights=log_attention_weights))
+                    log_attention_weights=log_attention_weights,
+                    layer_id=-1 if i == num_layers - 1 else i))
 
     def forward(self, data):
         self_layer_attention_weights = []
@@ -84,16 +85,14 @@ class GraphCrossAttenNet(nn.Module):
         # shape: rna_data = (N, F_rna), prot_data = (N, F_prot), adj_mtx = (N, N)
         rna_data, prot_data, edge_index = data
         # shape: concat_data = (N, F_rna + F_prot)
-        concat_data = torch.cat((rna_data, prot_data), dim=1)
+        # concat_data = torch.cat((rna_data, prot_data), dim=1)
         for i in range(len(self.gat_net)):
             if i == 0:
                 # The input of the first layer of the GAT should be linearly projected to the dim of input features.
                 rna_data = self.GAT_linear_proj(rna_data)
-                concat_data = self.cross_attn_linear_proj(concat_data)
-
+                concat_data = torch.cat((rna_data, prot_data), dim=1)
                 # shape of rna_data = (N, F_rna)
                 # shape of concat_data = (N, F_rna + F_prot)
-
                 gat_input = (rna_data, edge_index)
                 cross_attn_input = (concat_data, edge_index)
 
@@ -101,30 +100,16 @@ class GraphCrossAttenNet(nn.Module):
                 cross_attn_output, _ = self.cross_attn_net[i](cross_attn_input)
             else:
                 gat_input = (gat_output, edge_index)
-                cross_attn_input_from_rna = gat_output
-                cross_attn_input_from_mo = cross_attn_output
-
                 # shape of gat_output = (N, F_rna)
                 # shape of cross_attn_output = (N, F_rna + F_prot)
-
-                # The input of teh cross attention network is the average of the two parts
+                cross_attn_input_from_rna = gat_output
+                cross_attn_input_from_mo = cross_attn_output
+                # cross_attn_input_from_rna shape: (N, NH, F_out)
+                # cross_attn_input_from_mo shape: (N, NH, F_out+F_prot)
+                # cross_attn_input shape: (N, NH, F_out+F_prot)
                 cross_attn_input = torch.zeros_like(cross_attn_input_from_mo) # shape: (N, F_rna+F_prot)
-                
-                # Here is very important, we should use the attention from the previous layer to mask the input of the cross attention layer.
-                # Get the number of head in this layer
-
-                # before concat, the shape of the cross_attn_input is (N, F_rna+F_prot) ? (N, NH, F_rna+F_prot)
-                # after concat, the shape of the cross_attn_input is (N, NH, F_rna+F_prot)
-
-                num_heads = self.cross_attn_net[i-1].num_heads
-                cross_attn_input_from_rna = cross_attn_input_from_rna.view(-1, 
-                                                num_heads, int(cross_attn_input_from_rna.shape[1] / num_heads))
-
-                # cross_attn_input_from_rna shape: (N, NH, F_rna)
-                # cross_attn_input_from_mo shape: (N, NH, F_rna+F_prot)
-                # cross_attn_input shape: (N, NH, F_rna+F_prot)
-                cross_attn_input[:, :, :cross_attn_input_from_rna.shape[1]] = cross_attn_input_from_rna + cross_attn_input_from_mo[:, :, :cross_attn_input_from_rna.shape[1]]
-                cross_attn_input[:, :, cross_attn_input_from_rna.shape[1]:] = cross_attn_input_from_mo[:, :, cross_attn_input_from_rna.shape[1]:]
+                cross_attn_input[:, :, :cross_attn_input_from_rna.shape[-1]] = cross_attn_input_from_rna + cross_attn_input_from_mo[:, :, :cross_attn_input_from_rna.shape[-1]]
+                cross_attn_input[:, :, cross_attn_input_from_rna.shape[-1]:] = cross_attn_input_from_mo[:, :, cross_attn_input_from_rna.shape[-1]:]
                 cross_attn_input = (cross_attn_input, edge_index)
 
                 gat_output, _ = self.gat_net[i](gat_input)
@@ -133,8 +118,14 @@ class GraphCrossAttenNet(nn.Module):
             self_layer_attention_weights.append(self.gat_net[i].attention_mask)
             cross_layer_attention_weights.append(self.cross_attn_net[i].attention_mask)
         # return (self_layer_attention_weights, cross_layer_attention_weights)
+        # print(cross_attn_output.shape, gat_output.shape)
+        rna_dim = gat_output.shape[-1]
+        mo_rna_output = cross_attn_output[:, :rna_dim]
         gat_output = self.GAT_reproj(gat_output)
-        cross_attn_output = self.cross_attn_reproj(cross_attn_output)
+        mo_rna_output = self.GAT_reproj(mo_rna_output)
+        # print(cross_attn_output.shape, gat_output.shape, mo_rna_output.shape, cross_attn_output[:, rna_dim:])
+        cross_attn_output = torch.concat((mo_rna_output, cross_attn_output[:, rna_dim:]), dim=1)
+        # print(cross_attn_output.shape, gat_output.shape, mo_rna_output.shape)
         return (gat_output, cross_attn_output)
 
 
@@ -161,10 +152,11 @@ class CrossAttnLayer(GATLayer):
                  dropout_prob=0.6,
                  add_skip_connection=True,
                  bias=True,
-                 log_attention_weights=False):
+                 log_attention_weights=False,
+                 layer_id=0):
         
         super().__init__(num_in_features, num_out_features, num_heads, concat, 
-                activation, dropout_prob, add_skip_connection, bias, log_attention_weights)
+                activation, dropout_prob, add_skip_connection, bias, log_attention_weights, layer_id)
         
     def forward(self, data):
         # The data is the concatenation of the output of the last 1st path self-attention layer and the 2nd path cross-attention layer.
@@ -173,8 +165,11 @@ class CrossAttnLayer(GATLayer):
         cross_attn_data, edge_index = data
         # edge_index = adj_mtx.nonzero().t()
         num_nodes = cross_attn_data.shape[self.nodes_dim]
-        
-        in_nodes_features = self.dropout(cross_attn_data)
+        # check the input dimension of the cross_attn_data
+        # print(cross_attn_data.shape, self.num_in_features)
+        in_nodes_features = cross_attn_data.view(-1, self.num_in_features)
+        # print(in_nodes_features.shape, self.linear_proj.weight.shape)
+        in_nodes_features = self.dropout(in_nodes_features)
         in_nodes_features_proj = self.linear_proj(in_nodes_features).view(-1, self.num_heads, self.num_out_features)
         in_nodes_features_proj = self.dropout(in_nodes_features_proj)
 
@@ -198,8 +193,8 @@ class CrossAttnLayer(GATLayer):
 
         self.attention_mask = attention_per_edge
 
-        # reshape the out_nodes_features to the shape of (N, H, F_out)
-        out_nodes_features = out_nodes_features.view(-1, self.num_heads, self.num_out_features)
-
+        # reshape the out_nodes_features to the shape of (N, NH, F_out) 
+        # or (N, F_out) if last layer
+        if not self.layer_id == -1:
+            out_nodes_features = out_nodes_features.view(-1, self.num_heads, self.num_out_features)
         return (out_nodes_features, edge_index)
-
