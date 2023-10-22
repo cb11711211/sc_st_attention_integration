@@ -9,3 +9,4 @@ package.json
 .ipynb_checkpoints/pot_fuse_prot_rna-checkpoint.ipynb
 # add folder __pycache__
 __pycache__/
+processed/
