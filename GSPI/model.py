@@ -2,18 +2,50 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv, Linear
 
+class GraphAttnBlock(nn.Module):
+    """Graph attention block. Contains two GATConv layers and skip connection."""
+    def __init__(self, channel_in, channel_out, heads=4, dropout=0.2):
+        super().__init__()
+        self.conv1 = GATConv((-1, -1), channel_in, heads=heads, dropout=0.2, add_self_loops=False)
+        self.lin1 = Linear(-1, channel_in * 4)
+        self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=0.2, add_self_loops=False)
+        self.lin2 = Linear(-1, channel_out * 4)
+
+    def forward(self, x, edge_index):
+        x = self.conv1(x, edge_index) + self.lin1(x)
+        x = x.relu()
+        x = self.conv2(x, edge_index) + self.lin2(x)
+        return x
+
+
 class GraphCrossAttn(nn.Module):
-    def __init__(self, rna_input_dim, prot_input_dim, hidden_dim, embedding_dim, heads=4):
+    def __init__(self, rna_input_dim, prot_input_dim, hidden_dim, embedding_dim, heads=4, num_blocks=2, dropout=0.2):
         super().__init__()
         self.rna_input_dim = rna_input_dim
         self.prot_input_dim = prot_input_dim
         # encoding
         self.rna_embedding = Linear(rna_input_dim, embedding_dim)
         self.prot_embedding = Linear(prot_input_dim, embedding_dim)
-        self.cross_attn1 = GATConv((-1, -1), hidden_dim, heads=heads, dropout=0.2, add_self_loops=False)
-        self.lin1 = Linear(-1, hidden_dim * heads)
-        self.cross_attn2 = GATConv((-1, -1), hidden_dim, heads=heads, dropout=0.2, add_self_loops=False)
-        self.lin2 = Linear(-1, hidden_dim * heads)
+        self.cross_attn_blocks = nn.ModuleList()
+        for i in range(num_blocks):
+            if i == 0:
+                self.cross_attn_blocks.append(
+                    GraphAttnBlock(
+                        embedding_dim, 
+                        hidden_dim, 
+                        heads=heads, 
+                        dropout=dropout
+                    )
+                )
+            else:
+                self.cross_attn_blocks.append(
+                    GraphAttnBlock(
+                        hidden_dim, 
+                        hidden_dim, 
+                        heads=heads, 
+                        dropout=dropout
+                        )
+                    )
         # aggregating the cross attention heads
         self.cross_attn_agg = Linear(-1, hidden_dim)
         # decoding
@@ -61,17 +93,3 @@ class GraRPINet(nn.Module):
         return x
 
 
-class GraphAttnBlock(nn.Module):
-    """Graph attention block. Contains two GATConv layers and skip connection."""
-    def __init__(self, dim_embedding, dim_hidden, heads=4, dropout=0.2):
-        super().__init__()
-        self.conv1 = GATConv(dim_embedding, dim_embedding, heads=heads, dropout=0.2, add_self_loops=False)
-        self.lin1 = Linear(dim_embedding * 4, dim_embedding)
-        self.conv2 = GATConv(dim_embedding, dim_embedding, heads=heads, dropout=0.2, add_self_loops=False)
-        self.lin2 = Linear(dim_embedding * 4, dim_embedding)
-
-    def forward(self, x, edge_index):
-        x = self.conv1(x, edge_index) + self.lin1(x)
-        x = x.relu()
-        x = self.conv2(x, edge_index) + self.lin2(x)
-        return x
