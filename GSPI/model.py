@@ -58,12 +58,8 @@ class GraphCrossAttn(nn.Module):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
         prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
         x = torch.cat([rna_embedding, prot_embedding], dim=1)
-        x = self.cross_attn1(x, data.edge_index) + self.lin1(x)
-        x = x.relu()
-        # dropout
-
-        x = self.cross_attn2(x, data.edge_index) + self.lin2(x)
-        x = x.relu()
+        for block in self.cross_attn_blocks:
+            x = block(x, data.edge_index)
         x = self.cross_attn_agg(x)
         embedding = x.relu()
         rna_embedding = self.rna_decoding(embedding)

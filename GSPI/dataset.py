@@ -1,5 +1,6 @@
+import muon as mu
+from torch_geometric.loader import NeighborLoader
 from torch_geometric.transforms import RandomNodeSplit, RandomLinkSplit
-
 # General rules:
 # 1. message passing edge: used for GNN message passing
 # 2. supervision edge: used in loss function for backpropagation
