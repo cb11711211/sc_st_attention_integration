@@ -57,11 +57,21 @@ class GraphCrossAttn(nn.Module):
     def forward(self, data):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
         prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
-        x = torch.cat([rna_embedding, prot_embedding], dim=1)
+        x_input = torch.cat([rna_embedding, prot_embedding], dim=1)
+
+        raw_x_input = x_input.clone()
         for block in self.cross_attn_blocks:
-            x = block(x, data.edge_index)
+            x = block(raw_x_input, data.edge_index)
         x = self.cross_attn_agg(x)
         embedding = x.relu()
+
+        # # randomly shuffle the edges to get contrastive graph
+        # edge_index_perm = data.edge_index[:, torch.randperm(data.edge_index.shape[1])]
+        # for block in self.cross_attn_blocks:
+        #     x_perm = block(x_input, edge_index_perm)
+        # x_perm = self.cross_attn_agg(x_perm)
+        # embedding_perm = x_perm.relu()
+
         rna_embedding = self.rna_decoding(embedding)
         prot_embedding = self.prot_decoding(embedding)
         rna_recon = self.rna_recon(rna_embedding)
@@ -87,5 +97,3 @@ class GraRPINet(nn.Module):
         x = x.relu()
         x = self.conv2(x, edge_index) + self.lin2(x)
         return x
-
-

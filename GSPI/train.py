@@ -1,9 +1,12 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.nn.parallel import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.loader import NeighborLoader
+from sklearn.neighbors import NearestNeighbors
 
 from model import GraphCrossAttn
 
@@ -23,6 +26,7 @@ class Trainer():
         epochs: int=100,
         mask_ratio: float=0.5,
         num_splits: int=5,
+        alpha: float=0.499,
     ):
         self.data = data
         self.model_choice = model_choice
@@ -37,6 +41,7 @@ class Trainer():
         self.device = device
         self.mask_ratio = mask_ratio
         self.num_splits = num_splits
+        self.alpha = alpha
         self.train_losses = []
         self.val_losses = []
 
@@ -53,20 +58,16 @@ class Trainer():
         mask = target != 0
         loss = F.mse_loss(pred[mask], target[mask])
         return loss / mask.sum()
-    
-    def permute_node(self, batch):
-        """Randomly permute the node order for graph-level prediction"""
-        batch = batch.to(self.device)
-        permuted_batch = batch.clone()
-        permuted_batch.x = batch.x[torch.randperm(batch.x.shape[0])]
-        return permuted_batch
-    
-    def graph_level_loss(self, pred, target):
-        """Define the loss function for graph-level prediction"""
-        loss = F.mse_loss(pred, target)
-        return loss
 
-    def _train_step(self, loader):
+
+    def contrastive_loss(self, embedding, embedding_perm):
+        """Define the loss function for contrastive learning"""
+        def kl_divergence(p, q):
+            return torch.sum(p * torch.log(p / (q + 1e-6) + 1e-6))
+        return kl_divergence(embedding, embedding_perm)
+    
+
+    def _train_step(self, loader, alpha=0.4):
         self.model.train()
         total_loss = 0
         for batch in loader:
@@ -74,28 +75,30 @@ class Trainer():
             batch = batch.to(self.device)
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             rna_recon, prot_recon, embedding = self.model(masked_batch)
-            loss = self.masked_value_loss(
+            loss = alpha * self.masked_value_loss(
                     rna_recon, masked_batch.x[:, :self.rna_input_dim]
-                    ) + self.masked_value_loss(
+                    ) + alpha * self.masked_value_loss(
                         prot_recon, masked_batch.x[:, self.rna_input_dim:]
-                    )
+                    ) 
+            # + (1 - 2 * alpha) * self.contrastive_loss(embedding, embedding_perm)
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
         return total_loss
 
-    def _val_step(self, loader):
+    def _val_step(self, loader, alpha=0.499):
         self.model.eval()
         total_loss = 0
         for batch in loader:
             batch = batch.to(self.device)
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             rna_recon, prot_recon, embedding = self.model(masked_batch)
-            loss = self.masked_value_loss(
+            loss = alpha * self.masked_value_loss(
                 rna_recon, masked_batch.x[:, :self.rna_input_dim]
-                ) + self.masked_value_loss(
+                ) + alpha * self.masked_value_loss(
                     prot_recon, masked_batch.x[:, self.rna_input_dim:]
-                    )
+                ) 
+            # + (1 - 2 * alpha) * self.contrastive_loss(embedding, embedding_perm)
             total_loss += loss.item()
         return total_loss
 
@@ -142,8 +145,8 @@ class Trainer():
             self.setup(split=split)
             train_losses, val_losses = [], []
             for epoch in range(self.epochs):
-                train_loss = self._train_step(self.train_loader)
-                val_loss = self._val_step(self.val_loader)
+                train_loss = self._train_step(self.train_loader, alpha=self.alpha)
+                val_loss = self._val_step(self.val_loader, alpha=self.alpha)
                 self.scheduler.step(val_loss)
                 print(f"Epoch {epoch + 1}/{self.epochs} train_loss: {train_loss:.5f} val_loss: {val_loss:.5f}")
                 train_losses.append(train_loss)
@@ -151,8 +154,11 @@ class Trainer():
             if val_loss < lowest_loss:
                 lowest_loss = val_loss
                 self.best_model = self.model
+                self.best_split = split
+                
             train_history_for_splits.append(train_losses)
             val_history_for_splits.append(val_losses)
+        print(f"Best model saved at split {self.best_split}")
         return train_history_for_splits, val_history_for_splits
 
 
