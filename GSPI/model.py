@@ -8,11 +8,13 @@ class GraphAttnBlock(nn.Module):
         super().__init__()
         self.conv1 = GATConv((-1, -1), channel_in, heads=heads, dropout=0.2, add_self_loops=False)
         self.lin1 = Linear(-1, channel_in * 4)
+        self.ln = nn.LayerNorm(channel_in * 4)
         self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=0.2, add_self_loops=False)
         self.lin2 = Linear(-1, channel_out * 4)
 
     def forward(self, x, edge_index):
         x = self.conv1(x, edge_index) + self.lin1(x)
+        x = self.ln(x)
         x = x.relu()
         x = self.conv2(x, edge_index) + self.lin2(x)
         return x
