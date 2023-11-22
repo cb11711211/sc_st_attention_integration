@@ -91,3 +91,63 @@ def constrative_loss(adata, pos_pairs, neg_pairs, alpha=1.0, beta=1.0):
     # calculate the constrative loss
     loss = np.mean(neg_dis) - np.mean(pos_dis)
     return loss
+
+def move_mtx(df, depth):
+    """
+    move the coordinate of the (x,y)
+    """
+    x_lim = df['X'].max()
+    y_lim = df['Y'].max()
+    result = [(i, j) for i in range(-depth, 
+                    depth+1) for j in range(-depth, 
+                    depth+1) if abs(i) + abs(j) <= depth and abs(i) + abs(j) != 0]
+    for i in result:
+        df_tmp = df.copy()
+        df_tmp['X'] = df_tmp['X'] + i[0]
+        df_tmp['Y'] = df_tmp['Y'] + i[1]
+        df = pd.concat([df, df_tmp], axis=0)
+
+    # remove the coordinate that is out of the boundary
+    df = df[(df['X'] >= 0) & (df['X'] <= x_lim)]
+    df = df[(df['Y'] >= 0) & (df['Y'] <= y_lim)]
+    return df
+
+def spatial_depth_rank(adata, depth=4, source_type='A', target_type="B", threshold=0.5):
+    """
+    Getting the spatial depth for the target type and source type
+    depth: the depth of the target type, formula: one bin spot equals to 50 units of distance
+    """
+    # get the all spots belong to the source type
+    source_spots = adata.obs[adata.obs['cell_type'] == source_type].index
+    source_spots = adata[source_spots, :].obs[source_type] > threshold
+    adata_temp = adata[target_spots, :]
+    # get the all spots belong to the target type within depth
+    target_spots = adata.obs[adata.obs['cell_type'] == target_type].index
+    target_spots = adata[target_spots, :].obs[target_type] > threshold
+    # get the spatial coordinates for the source spots, and find the nearest spots for source spots
+    spatial_coord = adata.obs[['X', 'Y']].loc[source_spots, :]
+    # get the neighbor spot
+    covered_spots = move_mtx(spatial_coord, depth)
+    # for all of the target spots, located in the covered spots, get the potential of the target type
+    target_spots_valued = adata[target_spots, :].obs[["X", "Y"]] in covered_spots
+    # get the potential of the target type
+    target_valued = adata[target_spots, :].obs[target_type]
+    # get the mean potential of the target type
+    target_valued_mean = target_valued.mean()
+    return target_valued_mean
+
+        
+def permute_node(adj_mtx):
+    """
+    Permute the node in the graph, and return the permuted graph
+    input: adj_mtx, the adjacency matrix of the graph
+    output: adj_mtx_permuted, the permuted adjacency matrix of the graph
+    """
+    # get the permuted index
+    permuted_index = np.random.permutation(adj_mtx.shape[0])
+    # get the permuted adjacency matrix
+    adj_mtx = adj_mtx - np.eye(adj_mtx.shape[0])
+    adj_mtx_permuted = adj_mtx[permuted_index, :]
+    ajd_mtx_permuted = adj_mtx_permuted[:, permuted_index]
+    
+    return adj_mtx_permuted
