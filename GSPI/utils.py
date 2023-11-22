@@ -148,6 +148,5 @@ def permute_node(adj_mtx):
     # get the permuted adjacency matrix
     adj_mtx = adj_mtx - np.eye(adj_mtx.shape[0])
     adj_mtx_permuted = adj_mtx[permuted_index, :]
-    ajd_mtx_permuted = adj_mtx_permuted[:, permuted_index]
-    
+    adj_mtx_permuted = adj_mtx_permuted[:, permuted_index]
     return adj_mtx_permuted
