@@ -99,3 +99,4 @@ class GraRPINet(nn.Module):
         x = x.relu()
         x = self.conv2(x, edge_index) + self.lin2(x)
         return x
+
