@@ -135,18 +135,51 @@ def spatial_depth_rank(adata, depth=4, source_type='A', target_type="B", thresho
     # get the mean potential of the target type
     target_valued_mean = target_valued.mean()
     return target_valued_mean
-
         
-def permute_node(adj_mtx):
+def permute_node(adj_mtx, preserve_neighbors=0.5):
     """
     Permute the node in the graph, and return the permuted graph
-    input: adj_mtx, the adjacency matrix of the graph
-    output: adj_mtx_permuted, the permuted adjacency matrix of the graph
+    Preserve a portion of neighbors for each node
     """
-    # get the permuted index
-    permuted_index = np.random.permutation(adj_mtx.shape[0])
-    # get the permuted adjacency matrix
-    adj_mtx = adj_mtx - np.eye(adj_mtx.shape[0])
-    adj_mtx_permuted = adj_mtx[permuted_index, :]
-    adj_mtx_permuted = adj_mtx_permuted[:, permuted_index]
-    return adj_mtx_permuted
+    # get the edge index
+    edge_index = np.argwhere(adj_mtx > 0)
+    # for each node, randomly select 50% of the neighbors, which means 50% of the edges are not changed
+    for i in range(adj_mtx.shape[0]):
+        # get neighbors that exist in the graph
+        neighbors = edge_index[edge_index[:, 0] == i, 1]
+        if neighbors is None:
+            continue
+        # get the number of neighbors that need to be preserved
+        num_preserve_neighbors = int(len(neighbors) * preserve_neighbors)
+        if num_preserve_neighbors == int(len(neighbors)):
+            continue
+        # assign which neighbors need to be preserved
+        neighbors_preserved = np.random.choice(neighbors, num_preserve_neighbors, replace=False)
+        # get the neighbors that need to be permuted
+        neighbors_permuted = np.setdiff1d(neighbors, neighbors_preserved)
+        # delete the edges that need to be permuted
+        adj_mtx[i, neighbors_permuted] = 0
+        # randomly assign new edges for the neighbors
+        nodes_non_neighbors = np.setdiff1d(np.arange(adj_mtx.shape[0]), neighbors)
+        neighbors_assign = np.random.choice(nodes_non_neighbors, len(neighbors_permuted), replace=False)
+        adj_mtx[i, neighbors_assign] = 1
+    return adj_mtx
+
+def get_permuted_graph(adata, neighbors=10, sim_thres=0.5):
+    """
+    adata: the anndata object with the spatial information or the expression-based graph
+    neighbors: the number of neighbors for the graph
+    sim_thres: the threshold for the similarity between two cells
+
+    Calculate process:
+    1. build the graph based on the expression profile (For the scRNA-seq data)
+    2. get the similarity matrix for the graph
+    3. permute the node in the graph with restriction that a portion of the nodes' neighbors are not changed
+    """
+    adata_tmp = adata.copy()
+    sc.pp.neighbors(adata_tmp, n_neighbors=neighbors, use_rep='X')
+    # get the similarity matrix
+    sim_mat = adata_tmp.obsp['connectivities']
+    # permute the node in the graph
+    permuted_graph = permute_node(sim_mat) # get the permuted graph adjacency matrix
+    return permuted_graph
