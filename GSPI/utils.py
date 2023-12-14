@@ -183,3 +183,16 @@ def get_permuted_graph(adata, neighbors=10, sim_thres=0.5):
     # permute the node in the graph
     permuted_graph = permute_node(sim_mat) # get the permuted graph adjacency matrix
     return permuted_graph
+
+
+def latent_mixing_metric():
+    """
+    Calculate the latent mixing metric for the integration results
+    """
+    pass
+
+
+def measurement_mixing_metric():
+    """
+    Calculate the measurement mixing metric for the integration results
+    """
