@@ -6,6 +6,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.loader import NeighborLoader
+from torch_geometric.sampler import NegativeSampling
 from sklearn.neighbors import NearestNeighbors
 
 from model import GraphCrossAttn
@@ -25,6 +26,7 @@ class Trainer():
         model_choice: str="Graph Cross Attention", 
         epochs: int=100,
         mask_ratio: float=0.5,
+        preserve_rate: float=0.5,
         num_splits: int=5,
         alpha: float=0.499,
     ):
@@ -40,6 +42,7 @@ class Trainer():
         self.batch_size = batch_size
         self.device = device
         self.mask_ratio = mask_ratio
+        self.preserve_rate = preserve_rate
         self.num_splits = num_splits
         self.alpha = alpha
         self.train_losses = []
@@ -67,20 +70,19 @@ class Trainer():
         return kl_divergence(embedding, embedding_perm)
     
 
-    def _train_step(self, loader, alpha=0.4):
+    def _train_step(self, loader, alpha=0.4, beta=0.1):
         self.model.train()
         total_loss = 0
         for batch in loader:
             self.optimizer.zero_grad()
-            batch = batch.to(self.device)
+            batch = batch.to(self.device) # input batch data
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             rna_recon, prot_recon, embedding = self.model(masked_batch)
             loss = alpha * self.masked_value_loss(
                     rna_recon, masked_batch.x[:, :self.rna_input_dim]
                     ) + alpha * self.masked_value_loss(
                         prot_recon, masked_batch.x[:, self.rna_input_dim:]
-                    ) 
-            # + (1 - 2 * alpha) * self.contrastive_loss(embedding, embedding_perm)
+                    )
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()

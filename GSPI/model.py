@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv, Linear
+from utils import permute_node
 
 class GraphAttnBlock(nn.Module):
     """Graph attention block. Contains two GATConv layers and skip connection."""
@@ -56,28 +57,31 @@ class GraphCrossAttn(nn.Module):
         self.rna_recon = Linear(embedding_dim, rna_input_dim)
         self.prot_recon = Linear(embedding_dim, prot_input_dim)
         
-    def forward(self, data):
+    def forward(self, data, preserve_prob=0.5, permute=False):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
         prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
         x_input = torch.cat([rna_embedding, prot_embedding], dim=1)
 
+        # mask prediction task for the input
         raw_x_input = x_input.clone()
         for block in self.cross_attn_blocks:
             x = block(raw_x_input, data.edge_index)
         x = self.cross_attn_agg(x)
         embedding = x.relu()
 
-        # # randomly shuffle the edges to get contrastive graph
-        # edge_index_perm = data.edge_index[:, torch.randperm(data.edge_index.shape[1])]
-        # for block in self.cross_attn_blocks:
-        #     x_perm = block(x_input, edge_index_perm)
-        # x_perm = self.cross_attn_agg(x_perm)
-        # embedding_perm = x_perm.relu()
-
+        # randomly shuffle the edges to get contrastive graph
+        if permute:
+            edge_index_perm = permute_node(data.edge_index, preserve_neighbors=preserve_prob)
+            for block in self.cross_attn_blocks:
+                x_perm = block(x_input, edge_index_perm)
+            x_perm = self.cross_attn_agg(x_perm)
+            embedding_perm = x_perm.relu()
         rna_embedding = self.rna_decoding(embedding)
         prot_embedding = self.prot_decoding(embedding)
         rna_recon = self.rna_recon(rna_embedding)
         prot_recon = self.prot_recon(prot_embedding)
+        if permute:
+            return rna_recon, prot_recon, embedding, embedding_perm
         return rna_recon, prot_recon, embedding
 
 
