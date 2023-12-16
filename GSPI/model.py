@@ -76,6 +76,7 @@ class GraphCrossAttn(nn.Module):
                 x_perm = block(x_input, edge_index_perm)
             x_perm = self.cross_attn_agg(x_perm)
             embedding_perm = x_perm.relu()
+            
         rna_embedding = self.rna_decoding(embedding)
         prot_embedding = self.prot_decoding(embedding)
         rna_recon = self.rna_recon(rna_embedding)

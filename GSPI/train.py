@@ -26,6 +26,7 @@ class Trainer():
         model_choice: str="Graph Cross Attention", 
         epochs: int=100,
         mask_ratio: float=0.5,
+        permute: bool=False,
         preserve_rate: float=0.5,
         num_splits: int=5,
         alpha: float=0.499,
@@ -42,6 +43,7 @@ class Trainer():
         self.batch_size = batch_size
         self.device = device
         self.mask_ratio = mask_ratio
+        self.permute = permute
         self.preserve_rate = preserve_rate
         self.num_splits = num_splits
         self.alpha = alpha
@@ -77,6 +79,14 @@ class Trainer():
             self.optimizer.zero_grad()
             batch = batch.to(self.device) # input batch data
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
+
+            if self.permute:
+                rna_recon, prot_recon, embedding, embedding_perm = self.model(masked_batch, permute=True)
+                loss = alpha * self.masked_value_loss(
+                    rna_recon, masked_batch.x[:, :self.rna_input_dim]
+                ) + beta * self.masked_value_loss(
+                    prot_recon, masked_batch.x[:, self.rna_input_dim:]
+                ) + (1 - alpha - beta) * self.contrastive_loss(embedding, embedding_perm)
             rna_recon, prot_recon, embedding = self.model(masked_batch)
             loss = alpha * self.masked_value_loss(
                     rna_recon, masked_batch.x[:, :self.rna_input_dim]
