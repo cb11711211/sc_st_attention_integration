@@ -6,10 +6,9 @@ import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import seaborn as sns
 import muon as mu
+import torch
 from sklearn.metrics import mean_squared_error
 from scipy.sparse import coo_matrix
-
-from data.project.scBERT_test.scBERT.test import POS_EMBED_USING
 
 def rmse(pred, target):
     return np.sqrt(mean_squared_error(pred, target))
@@ -138,8 +137,10 @@ def spatial_depth_rank(adata, depth=4, source_type='A', target_type="B", thresho
 
 
 def edge_index_to_adj_mtx(edge_index):
+    edge_index = edge_index.cpu().numpy()
     num_nodes = edge_index.max() + 1  # assuming nodes are 0-indexed
-    adj_mtx = coo_matrix((np.ones(edge_index.shape[1]), (edge_index[0], edge_index[1])), shape=(num_nodes, num_nodes))
+    adj_mtx = coo_matrix((np.ones(edge_index.shape[1]), 
+                (edge_index[0], edge_index[1])), shape=(num_nodes, num_nodes))
     return adj_mtx.toarray()  # convert to a dense array
 
 def adj_mtx_to_edge_index(adj_mtx):
@@ -147,23 +148,25 @@ def adj_mtx_to_edge_index(adj_mtx):
     edge_index = edge_index.T
     return edge_index
         
-def permute_node(edge_index, preserve_neighbors=0.5):
+def permute_node(edge_index, preserve_rate=0.5):
     """
     Permute the node in the graph, and return the permuted graph
     Preserve a portion of neighbors for each node
     """
     num_edges = edge_index.shape[0]
+    device = edge_index.device
     adj_mtx = edge_index_to_adj_mtx(edge_index)
     # for each node, randomly select 50% of the neighbors, which means 50% of the edges are not changed
     for i in range(edge_index[:, 0].max()):
         # get neighbors that exist in the graph
-        neighbors = edge_index[edge_index[:, 0] == i, 1]
+        neighbors = edge_index[edge_index[:, 0] == i, 1].cpu().numpy()
         if neighbors is None:
             continue
         # get the number of neighbors that need to be preserved
-        num_preserve_neighbors = int(len(neighbors) * preserve_neighbors)
+        num_preserve_neighbors = int(len(neighbors) * preserve_rate)
         if num_preserve_neighbors == int(len(neighbors)):
             continue
+            
         # assign which neighbors need to be preserved
         neighbors_preserved = np.random.choice(neighbors, num_preserve_neighbors, replace=False)
         # get the neighbors that need to be permuted
@@ -176,14 +179,15 @@ def permute_node(edge_index, preserve_neighbors=0.5):
         adj_mtx[i, neighbors_assign] = 1
     # convert the adj_mtx to edge_index
     edge_index_perm = adj_mtx_to_edge_index(adj_mtx)
+    edge_index_perm = torch.tensor(edge_index_perm, dtype=torch.long, device=device)
     return edge_index_perm
 
-def get_permuted_graph(adata, neighbors=10, sim_thres=0.5, preserve_neighbors=0.5):
+def get_permuted_graph(adata, neighbors=10, sim_thres=0.5, preserve_rate=0.5):
     """
     adata: the anndata object with the spatial information or the expression-based graph
     neighbors: the number of neighbors for the graph
     sim_thres: the threshold for the similarity between two cells
-    preserve_neighbors: the portion of neighbors that need to be preserved
+    preserve_rate: the portion of neighbors that need to be preserved
 
     Calculate process:
     1. build the graph based on the expression profile (For the scRNA-seq data)
@@ -195,7 +199,7 @@ def get_permuted_graph(adata, neighbors=10, sim_thres=0.5, preserve_neighbors=0.
     # get the similarity matrix
     sim_mat = adata_tmp.obsp['connectivities']
     # get the permuted graph adjacency matrix
-    permuted_graph = permute_node(sim_mat, preserve_neighbors=preserve_neighbors) 
+    permuted_graph = permute_node(sim_mat, preserve_rate=preserve_neighbors) 
     return permuted_graph
 
 

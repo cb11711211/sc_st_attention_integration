@@ -30,6 +30,7 @@ class Trainer():
         preserve_rate: float=0.5,
         num_splits: int=5,
         alpha: float=0.499,
+        beta: float=0.499,
     ):
         self.data = data
         self.model_choice = model_choice
@@ -47,6 +48,7 @@ class Trainer():
         self.preserve_rate = preserve_rate
         self.num_splits = num_splits
         self.alpha = alpha
+        self.beta = beta
         self.train_losses = []
         self.val_losses = []
 
@@ -54,63 +56,109 @@ class Trainer():
         """Random mask the input data"""
         batch = batch.to(self.device)
         batch.input = batch.x.clone()
-        mask = torch.rand(batch.x.shape) < mask_ratio
+        mask = torch.rand(batch.x.shape).to(self.device) < mask_ratio
         batch.input[mask] = 0
+        batch.value_mask = mask
         return batch
 
-    def masked_value_loss(self, pred, target):
+    def masked_value_loss(self, pred, target, mask):
         """Define the loss function for masked value prediction"""
-        mask = target != 0
         loss = F.mse_loss(pred[mask], target[mask])
         return loss / mask.sum()
 
-
     def contrastive_loss(self, embedding, embedding_perm):
         """Define the loss function for contrastive learning"""
-        def kl_divergence(p, q):
-            return torch.sum(p * torch.log(p / (q + 1e-6) + 1e-6))
-        return kl_divergence(embedding, embedding_perm)
-    
+        embedding = F.log_softmax(embedding, dim=1)
+        embedding_perm = F.softmax(embedding_perm, dim=1)
+        KL_div = F.kl_div(embedding, embedding_perm, reduction="none")
+        return KL_div.sum(dim=1).mean()
+        
 
-    def _train_step(self, loader, alpha=0.4, beta=0.1):
+    def _train_step(self, loader, alpha=0.4, beta=0.1, split=0):
         self.model.train()
         total_loss = 0
         for batch in loader:
             self.optimizer.zero_grad()
             batch = batch.to(self.device) # input batch data
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
+            train_mask = batch.train_mask[:, split]
 
             if self.permute:
                 rna_recon, prot_recon, embedding, embedding_perm = self.model(masked_batch, permute=True)
+                rna_recon = rna_recon[train_mask]
+                prot_recon = prot_recon[train_mask]
+                embedding = embedding[train_mask]
+                embedding_perm = embedding_perm[train_mask]
                 loss = alpha * self.masked_value_loss(
-                    rna_recon, masked_batch.x[:, :self.rna_input_dim]
+                    rna_recon, 
+                    masked_batch.x[train_mask, :self.rna_input_dim],
+                    masked_batch.value_mask[train_mask, :self.rna_input_dim]
                 ) + beta * self.masked_value_loss(
-                    prot_recon, masked_batch.x[:, self.rna_input_dim:]
+                    prot_recon, 
+                    masked_batch.x[train_mask, self.rna_input_dim:],
+                    masked_batch.value_mask[train_mask, self.rna_input_dim:]
                 ) + (1 - alpha - beta) * self.contrastive_loss(embedding, embedding_perm)
-            rna_recon, prot_recon, embedding = self.model(masked_batch)
-            loss = alpha * self.masked_value_loss(
-                    rna_recon, masked_batch.x[:, :self.rna_input_dim]
-                    ) + alpha * self.masked_value_loss(
-                        prot_recon, masked_batch.x[:, self.rna_input_dim:]
+            else:
+                rna_recon, prot_recon, embedding = self.model(masked_batch)
+                rna_recon = rna_recon[train_mask]
+                prot_recon = prot_recon[train_mask]
+                embedding = embedding[train_mask]
+                loss = alpha * self.masked_value_loss(
+                        rna_recon, 
+                        masked_batch.x[train_mask, :self.rna_input_dim],
+                        masked_batch.value_mask[train_mask, :self.rna_input_dim]
+                    ) + (1 - alpha) * self.masked_value_loss(
+                        prot_recon, 
+                        masked_batch.x[train_mask, self.rna_input_dim:],
+                        masked_batch.value_mask[train_mask, self.rna_input_dim:]
                     )
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
         return total_loss
 
-    def _val_step(self, loader, alpha=0.499):
+    def _val_step(self, loader, alpha=0.5, beta=0.4, split=0):
         self.model.eval()
         total_loss = 0
         for batch in loader:
             batch = batch.to(self.device)
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
-            rna_recon, prot_recon, embedding = self.model(masked_batch)
-            loss = alpha * self.masked_value_loss(
-                rna_recon, masked_batch.x[:, :self.rna_input_dim]
-                ) + alpha * self.masked_value_loss(
-                    prot_recon, masked_batch.x[:, self.rna_input_dim:]
-                ) 
-            # + (1 - 2 * alpha) * self.contrastive_loss(embedding, embedding_perm)
+            val_mask = batch.val_mask[:, split]
+            with torch.no_grad():
+                if self.permute:
+                    rna_recon, prot_recon, embedding, embedding_perm = self.model(
+                        masked_batch, 
+                        permute=self.permute,
+                        preserve_prob=self.preserve_rate
+                        )
+                    rna_recon = rna_recon[val_mask]
+                    prot_recon = prot_recon[val_mask]
+                    embedding = embedding[val_mask]
+                    embedding_perm = embedding_perm[val_mask]
+                    loss = alpha * self.masked_value_loss(
+                        rna_recon, 
+                        masked_batch.x[val_mask, :self.rna_input_dim],
+                        masked_batch.value_mask[val_mask, :self.rna_input_dim]
+                    ) + beta * self.masked_value_loss(
+                        prot_recon, 
+                        masked_batch.x[val_mask, self.rna_input_dim:],
+                        masked_batch.value_mask[val_mask, self.rna_input_dim:]
+                    ) + (1 - alpha - beta) * self.contrastive_loss(embedding, embedding_perm)
+                else:
+                    rna_recon, prot_recon, _ = self.model(
+                        masked_batch, permute=self.permute
+                        )
+                    rna_recon = rna_recon[val_mask]
+                    prot_recon = prot_recon[val_mask]
+                    loss = alpha * self.masked_value_loss(
+                        rna_recon, 
+                        masked_batch.x[val_mask, :self.rna_input_dim],
+                        masked_batch.value_mask[val_mask, :self.rna_input_dim]
+                    ) + (1 - alpha) * self.masked_value_loss(
+                        prot_recon, 
+                        masked_batch.x[val_mask, self.rna_input_dim:],
+                        masked_batch.value_mask[val_mask, self.rna_input_dim:]
+                    )
             total_loss += loss.item()
         return total_loss
 
@@ -157,8 +205,18 @@ class Trainer():
             self.setup(split=split)
             train_losses, val_losses = [], []
             for epoch in range(self.epochs):
-                train_loss = self._train_step(self.train_loader, alpha=self.alpha)
-                val_loss = self._val_step(self.val_loader, alpha=self.alpha)
+                train_loss = self._train_step(
+                    self.train_loader, 
+                    alpha=self.alpha, 
+                    beta=self.beta, 
+                    split=split
+                    )
+                val_loss = self._val_step(
+                    self.val_loader, 
+                    alpha=self.alpha, 
+                    beta=self.beta, 
+                    split=split
+                    )
                 self.scheduler.step(val_loss)
                 print(f"Epoch {epoch + 1}/{self.epochs} train_loss: {train_loss:.5f} val_loss: {val_loss:.5f}")
                 train_losses.append(train_loss)

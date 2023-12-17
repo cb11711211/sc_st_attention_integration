@@ -71,7 +71,7 @@ class GraphCrossAttn(nn.Module):
 
         # randomly shuffle the edges to get contrastive graph
         if permute:
-            edge_index_perm = permute_node(data.edge_index, preserve_neighbors=preserve_prob)
+            edge_index_perm = permute_node(data.edge_index, preserve_rate=preserve_prob)
             for block in self.cross_attn_blocks:
                 x_perm = block(x_input, edge_index_perm)
             x_perm = self.cross_attn_agg(x_perm)
