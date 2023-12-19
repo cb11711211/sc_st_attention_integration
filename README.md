@@ -13,4 +13,34 @@ There could be some alignment and difference between the gene expression profile
 
 The data preprocessing should consider the situation that the coordinations of the proteomics and transcriptomics profiles are not consistent. So that we need to do some implementation for the profiles such as optimal transport (OT) algorithm.
 
-For this step, we will firstly implement the OT algorithm to align the two omics data. That the 
+
+# Research plan
+## 1. Dataset using
+SNL dataset used in TOTALVI paper. Which is a dataset that contains spleen and lymph node cells. 
+10X Genomics PBMC dataset. Which is a dataset that contains peripheral blood mononuclear cells.
+## 2. Data preprocessing
+### 2.1 transcriptomics data preprocessing
+For transcriptomics data, implement the scale normalization and log transformation.  
+
+### 2.2 proteomics data preprocessing
+For proteomics data, implement the centering and log transformation.
+
+## 3. Data integration
+Using the TOTALVI, WNN, MOFA+ and our own method to integrate the data.
+
+## 4. DE analysis
+Implement DE analysis based on the embedding of the integrated data. 
+
+## 5. Imputation analysis
+
+## 6. Clustering analysis
+
+## 7. Spatial CITE-seq Fine-tuning
+There are three types of fine-tune strategy:
+    1. Addition-based: add the module encoding the spatial information to the original model.
+    2. Specification-based: specifically fine-tune the parameters of the pre-trained model and preserve the remaining parameters.
+    3. Reparameterization-based: reparameterize the pre-trained model
+
+Apply LoRA (Low rank adptation) to single-cell Multi-omics integration, we could easily fine-tune the pre-trained neural network to the specific downstream task like spatial multi-omics integration, spatially-resolved cell-cell communication, imputation and other. 
+
+With the understandin of the spatial transcriptomics, we could encode the spatial location into a latent space using the attention mechanism, which is an encoder for the spatial coordinates. 

@@ -63,9 +63,8 @@ class GraphCrossAttn(nn.Module):
         x_input = torch.cat([rna_embedding, prot_embedding], dim=1)
 
         # mask prediction task for the input
-        raw_x_input = x_input.clone()
         for block in self.cross_attn_blocks:
-            x = block(raw_x_input, data.edge_index)
+            x = block(x_input, data.edge_index)
         x = self.cross_attn_agg(x)
         embedding = x.relu()
 
@@ -84,6 +83,72 @@ class GraphCrossAttn(nn.Module):
         if permute:
             return rna_recon, prot_recon, embedding, embedding_perm
         return rna_recon, prot_recon, embedding
+
+
+class GraphCrossAttn_spatial_encoding(GraphCrossAttn):
+    def __init__(self, spatial_encoder_dim, rna_input_dim, prot_input_dim, hidden_dim, embedding_dim, heads=4, num_blocks=2, dropout=0.2):
+        super().__init__(rna_input_dim, prot_input_dim, hidden_dim, embedding_dim, heads, num_blocks, dropout)
+        self.spatial_encoder_dim = spatial_encoder_dim
+
+        # encoding for spatial coordinates
+        self.spatial_encoder = Linear(spatial_encoder_dim, embedding_dim)
+        self.cross_attn_blocks_spatial = nn.ModuleList()
+        
+        for i in range(num_blocks):
+            if i == 0:
+                self.cross_attn_blocks_spatial.append(
+                    GraphAttnBlock(
+                        embedding_dim, 
+                        hidden_dim, 
+                        heads=heads, 
+                        dropout=dropout
+                    )
+                )
+            else:
+                self.cross_attn_blocks_spatial.append(
+                    GraphAttnBlock(
+                        hidden_dim, 
+                        hidden_dim, 
+                        heads=heads, 
+                        dropout=dropout
+                        )
+                    )
+                
+        # aggregating the cross attention heads
+        self.cross_attn_agg_spatial = Linear(-1, hidden_dim)
+
+        # decoding for spatial coordinates
+        self.spatial_decoding = Linear(hidden_dim, embedding_dim)
+        self.spatial_recon = Linear(embedding_dim, spatial_encoder_dim)
+
+    def forward(self, data, preserve_prob=0.5, permute=False):
+        rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
+        prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
+        spatial_embedding = self.spatial_encoder(data.x[:, -self.spatial_encoder_dim:])
+        x_input = torch.cat([rna_embedding, prot_embedding, spatial_embedding], dim=1)
+
+        # mask prediction task for the input
+        for block in self.cross_attn_blocks:
+            x = block(x_input, data.edge_index)
+        x = self.cross_attn_agg(x)
+        embedding = x.relu()
+
+        # randomly shuffle the edges to get contrastive graph
+        if permute:
+            edge_index_perm = permute_node(data.edge_index, preserve_rate=preserve_prob)
+            for block in self.cross_attn_blocks:
+                x_perm = block(x_input, edge_index_perm)
+            x_perm = self.cross_attn_agg(x_perm)
+            embedding_perm = x_perm.relu()
+
+        rna_embedding = self.rna_decoding(embedding)
+        prot_embedding = self.prot_decoding(embedding)
+        spatial_embedding = self.spatial_decoding(embedding)
+        spatial_recon = self.spatial_recon(spatial_embedding)
+        if permute:
+            return rna_embedding, prot_embedding, spatial_recon, embedding, embedding_perm
+        return rna_embedding, prot_embedding, spatial_recon, embedding
+        
 
 
 class GraRPINet(nn.Module):
