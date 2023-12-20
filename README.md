@@ -44,3 +44,5 @@ There are three types of fine-tune strategy:
 Apply LoRA (Low rank adptation) to single-cell Multi-omics integration, we could easily fine-tune the pre-trained neural network to the specific downstream task like spatial multi-omics integration, spatially-resolved cell-cell communication, imputation and other. 
 
 With the understandin of the spatial transcriptomics, we could encode the spatial location into a latent space using the attention mechanism, which is an encoder for the spatial coordinates. 
+
+For the spatial encoding of the spatial transcriptomics, we could use the attention mechanism to encode the spatial coordinates into a latent space. And the graph is still constructed based on the expression profile of the spots.

@@ -1,7 +1,9 @@
+from operator import index
 import numpy as np
 import pandas as pd
 import scanpy as sc
 import anndata as ad
+from scipy import spatial
 import scipy.sparse as sp
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -9,6 +11,92 @@ import muon as mu
 import torch
 from sklearn.metrics import mean_squared_error
 from scipy.sparse import coo_matrix
+
+def construct_spatial_adata(data_path, rna_data, prot_data):
+    """
+    Construct spatial anndata for the spatial cite-seq matrix
+
+    Params:
+
+    """
+    rna_data = pd.read_csv(data_path + rna_data)
+    prot_data = pd.read_csv(data_path + prot_data)
+
+    rna_data.index = rna_data["Unnamed: 0"]
+    rna_data.drop("Unnamed: 0", axis=1, inplace=True)
+    prot_data.index = prot_data["Unnamed: 0"]
+    prot_data.drop("Unnamed: 0", axis=1, inplace=True)
+
+    def align_coord(df, offset=13, x_lim=78, y_lim=78):
+        coords = np.asarray(df.index.str.split("_", expand=True))
+        coordination = np.asarray([[int(coord[0]), int(coord[1])] for coord in coords])
+        x_mask_ind = coordination[:, 0] >= offset
+        y_mask_ind = coordination[:, 1] <= y_lim
+        mask_ind = x_mask_ind & y_mask_ind
+        df = df[mask_ind]
+        coordination = coordination[mask_ind]
+        row_ind = coordination[:, 0] - offset
+        col_ind = coordination[:, 1]
+        ind = [str(row) + "_" + str(col) for row, col in zip(row_ind, col_ind)]
+        df.index = ind
+        return df
+    
+    def get_adj_mtx(df):
+        """
+        define the x and y are close to 1 unit, the spots are neighbor
+        """
+        coords = np.asarray(df.index.str.split("_", expand=True))
+        coordination = np.asarray([[int(coord[0]), int(coord[1])] for coord in coords])
+        adj_mtx = np.zeros((coordination.shape[0], coordination.shape[0]))
+        for i in range(coordination.shape[0]):
+            for j in range(coordination.shape[0]):
+                # if the x and y are close to 1 unit, the spots are neighbor
+                if abs(coordination[i, 0] - coordination[j, 0]) <= 1 and abs(coordination[i, 1] - coordination[j, 1]) <= 1:
+                    adj_mtx[i, j] = 1
+        # set the diagonal of the adj_mtx to 0
+        np.fill_diagonal(adj_mtx, 0)
+        return adj_mtx
+    
+    prot_data = align_coord(prot_data, offset=13, y_lim=78)
+    # rna_coords
+    rna_coords = np.asarray(rna_data.index.str.split("_", expand=True))
+    rna_coordination = np.asarray([[int(coord[0]), int(coord[1])] for coord in rna_coords])
+
+    # prot_coords
+    prot_coords = np.asarray(prot_data.index.str.split("_", expand=True))
+    prot_coordination = np.asarray([[int(coord[0]), int(coord[1])] for coord in prot_coords])
+
+    prot_data.columns = prot_data.columns + "_prot"
+    combine_data = pd.concat([rna_data, prot_data], axis=1)
+    combine_data.fillna(0, inplace=True)
+    # adj_mtx = get_adj_mtx(combine_data)
+    coords = np.asarray(combine_data.index.str.split("_", expand=True))
+    coordination = np.asarray(
+        [[int(coord[0]), int(coord[1])] for coord in coords],
+        dtype=np.float32)
+    
+    # construct the spatial multi-omics anndata
+    n_prot = prot_data.shape[1]
+    n_rna = rna_data.shape[1]
+    rna_adata = ad.AnnData(
+        X=combine_data.values[:,:n_rna], 
+        obs=pd.DataFrame(index=combine_data.index), 
+        var=pd.DataFrame(index=combine_data.columns[:n_rna]),
+        )
+    prot_adata = ad.AnnData(
+        X=combine_data.values[:,n_rna:],
+        obs=pd.DataFrame(index=combine_data.index),
+        var=pd.DataFrame(index=combine_data.columns[n_rna:]),
+    )
+    rna_adata.obsm["spatial"] = coordination
+    prot_adata.obsm["spatial"] = coordination
+    spatial_mudata = mu.MuData({
+        "rna": rna_adata,
+        "prot": prot_adata
+    })
+    spatial_mudata.obsm["spatial"] = coordination
+    return spatial_mudata
+
 
 def rmse(pred, target):
     return np.sqrt(mean_squared_error(pred, target))
@@ -214,3 +302,5 @@ def measurement_mixing_metric():
     """
     Calculate the measurement mixing metric for the integration results
     """
+
+

@@ -9,7 +9,7 @@ from torch_geometric.loader import NeighborLoader
 from torch_geometric.sampler import NegativeSampling
 from sklearn.neighbors import NearestNeighbors
 
-from model import GraphCrossAttn
+from model import GraphCrossAttn, GraphCrossAttn_spatial_encoding
 
 class Trainer():
     def __init__(
@@ -165,6 +165,15 @@ class Trainer():
     def setup(self, split=0):
         if self.model_choice == "Graph Cross Attention":
             self.model = GraphCrossAttn(
+                rna_input_dim=self.rna_input_dim,
+                prot_input_dim=self.prot_input_dim,
+                hidden_dim=self.hidden_dim,
+                embedding_dim=self.embedding_dim,
+                heads=self.heads,
+                num_blocks=self.num_blocks,
+            ).to(self.device)
+        elif self.model_choice == "Spatial Graph Cross Attention":
+            self.model = GraphCrossAttn_spatial_encoding(
                 rna_input_dim=self.rna_input_dim,
                 prot_input_dim=self.prot_input_dim,
                 hidden_dim=self.hidden_dim,
