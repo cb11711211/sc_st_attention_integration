@@ -287,7 +287,7 @@ def get_permuted_graph(adata, neighbors=10, sim_thres=0.5, preserve_rate=0.5):
     # get the similarity matrix
     sim_mat = adata_tmp.obsp['connectivities']
     # get the permuted graph adjacency matrix
-    permuted_graph = permute_node(sim_mat, preserve_rate=preserve_neighbors) 
+    permuted_graph = permute_node(sim_mat, preserve_rate=preserve_rate) 
     return permuted_graph
 
 

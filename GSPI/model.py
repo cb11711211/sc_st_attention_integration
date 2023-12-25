@@ -123,7 +123,9 @@ class GraphCrossAttn_spatial_encoding(GraphCrossAttn):
 
     def forward(self, data, preserve_prob=0.5, permute=False):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
-        prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
+        prot_embedding = self.prot_embedding(
+            data.x[:, self.rna_input_dim:self.rna_input_dim + 
+                   self.prot_input_dim])
         spatial_embedding = self.spatial_encoder(data.x[:, -self.spatial_encoder_dim:])
         x_input = torch.cat([rna_embedding, prot_embedding, spatial_embedding], dim=1)
 
@@ -142,12 +144,14 @@ class GraphCrossAttn_spatial_encoding(GraphCrossAttn):
             embedding_perm = x_perm.relu()
 
         rna_embedding = self.rna_decoding(embedding)
+        rna_recon = self.rna_recon(rna_embedding)
         prot_embedding = self.prot_decoding(embedding)
+        prot_recon = self.prot_recon(prot_embedding)
         spatial_embedding = self.spatial_decoding(embedding)
         spatial_recon = self.spatial_recon(spatial_embedding)
         if permute:
-            return rna_embedding, prot_embedding, spatial_recon, embedding, embedding_perm
-        return rna_embedding, prot_embedding, spatial_recon, embedding
+            return rna_recon, prot_recon, spatial_recon, embedding, embedding_perm
+        return rna_recon, prot_recon, spatial_recon, embedding
         
 
 
