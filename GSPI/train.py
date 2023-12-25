@@ -363,12 +363,12 @@ class Trainer():
         }
         torch.save(save_dict, "save_model/best_model.pt")
         return train_history_for_splits, val_history_for_splits
-    
 
     def fine_tune(
             self, 
-            model_name="best_model.pt", 
-            epochs=100
+            mode: str="inference",
+            epochs: int=10,
+            model_name: str="best_model.pt", 
         ):
         """
         Loading the pre-trained best model and fine-tune it for downstream tasks.
@@ -381,8 +381,10 @@ class Trainer():
             model[name].load_state_dict(cpt["model"][name])
         optim.load_state_dict(cpt["optimizer"])
         model = model.to(self.device)
-
-
+        self.setup(split=self.best_split)
+        lowest_loss = torch.inf
+        # fine-tune the model
+            
 
     def ddp_run(rank: int, world_size: int, dataset: None, model: nn.Module):
         os.environ["MASTER_ADDR"] = "localhost"
