@@ -11,11 +11,13 @@ from torch_geometric.sampler import NegativeSampling
 from sklearn.neighbors import NearestNeighbors
 
 from model import GraphCrossAttn, GraphCrossAttn_spatial_encoding
+from dataset import GeneVocab
 
 class Trainer():
     def __init__(
         self, 
         data: Data, 
+        gene_vocab: GeneVocab,
         rna_input_dim: int, 
         prot_input_dim: int,
         hidden_dim: int,
@@ -23,6 +25,7 @@ class Trainer():
         heads: int,
         num_blocks: int,
         batch_size: int,
+        lr: float,
         device: torch.device,
         model_choice: str="Graph Cross Attention", 
         spatial_encoder_dim: int=2,
@@ -35,6 +38,7 @@ class Trainer():
         beta: float=0.499,
     ):
         self.data = data
+        self.gene_vocab = gene_vocab
         self.model_choice = model_choice
         self.epochs = epochs
         self.rna_input_dim = rna_input_dim
@@ -45,6 +49,7 @@ class Trainer():
         self.heads = heads
         self.num_blocks = num_blocks
         self.batch_size = batch_size
+        self.lr = lr
         self.device = device
         self.mask_ratio = mask_ratio
         self.permute = permute
@@ -67,8 +72,10 @@ class Trainer():
 
     def masked_value_loss(self, pred, target, mask):
         """Define the loss function for masked value prediction"""
-        loss = F.mse_loss(pred[mask], target[mask])
-        return loss / mask.sum()
+        def MSE_loss(pred, target):
+            return torch.sum((pred - target) ** 2)
+        loss = MSE_loss(pred[mask], target[mask]) / mask.sum() 
+        return loss
 
     def contrastive_loss(self, embedding, embedding_perm):
         """Define the loss function for contrastive learning"""
@@ -278,6 +285,28 @@ class Trainer():
                         )
             total_loss += loss.item()
         return total_loss
+    
+
+    def _inference_step(self, loader, mode="inference"):
+        """
+        Try to infer the spatial coordinates of the cells, given the pre-trained model.
+        Input data: 
+            1. Randomly mask 50% of the input data.
+            2. Use the pre-trained model to infer the spatial coordinates.
+            3. Iteratively update the model and using the inferred model to 
+                impute the mask value.
+            4. Decided to use which imputed value as the final value based on
+                the imputation loss. Which means the imputed value with lower
+                imputation loss will be used. This step could be done by Gaussian
+                Process Regression.
+        """
+        self.model.eval()
+        total_loss = 0
+        # align the index of features with pre-trained model
+        
+        # randomly mask 50% of the input data
+
+
 
     def setup(self, split=0):
         if self.model_choice == "Graph Cross Attention":
@@ -318,7 +347,7 @@ class Trainer():
             shuffle=False,
         )
 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=0.001)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
         )
@@ -356,16 +385,10 @@ class Trainer():
             train_history_for_splits.append(train_losses)
             val_history_for_splits.append(val_losses)
         print(f"Best model saved at split {self.best_split}")
-        # save the best model parameters
-        save_dict = {
-            "model": self.best_model.state_dict(),
-            "optimizer": self.optimizer.state_dict(),
-        }
-        torch.save(save_dict, "save_model/best_model.pt")
         return train_history_for_splits, val_history_for_splits
 
     def fine_tune(
-            self, 
+            self,
             mode: str="inference",
             epochs: int=10,
             model_name: str="best_model.pt", 
@@ -384,6 +407,9 @@ class Trainer():
         self.setup(split=self.best_split)
         lowest_loss = torch.inf
         # fine-tune the model
+        for epoch in range(epochs):
+            inference_loss = self._inference_step(self.train_loader, mode=mode)
+
             
 
     def ddp_run(rank: int, world_size: int, dataset: None, model: nn.Module):

@@ -1,24 +1,3 @@
-import muon as mu
-from torch_geometric.loader import NeighborLoader
-from torch_geometric.transforms import RandomNodeSplit, RandomLinkSplit
-# General rules:
-# 1. message passing edge: used for GNN message passing
-# 2. supervision edge: used in loss function for backpropagation
-
-## design for transductive learning
-transductive_tsf = RandomNodeSplit(
-    num_splits=5, # 5-fold cross validation
-    num_val=0.2, # 10% of training data for validation
-    num_test=0.2, # 10% of training data for testing
-)
-
-## design for inductive learning
-inductive_tsf = RandomLinkSplit(
-    is_undirected=True, # undirected graph
-    num_val=0.2, # 10% of training data for validation
-    num_test=0.2, # 10% of training data for testing
-)
-
 # load the dataset and save to a local directory
 def get_gene_dict(adata):
     gene_dict = {}
@@ -27,6 +6,12 @@ def get_gene_dict(adata):
     return gene_dict
 
 class GeneVocab():
+    """
+    The transfer learning model is based on the feature alignment of diverse datasets.
+    The initial dataset is used to build the vocabulary of genes and then using new datasets
+    to update the gene vocabulary. The gene vocabulary index should indicate the same gene
+    across different datasets.
+    """
     def __init__(self, adata_initial):
         self.gene_dict = get_gene_dict(adata_initial)
         self.gene_list = list(self.gene_dict.keys())
@@ -44,6 +29,14 @@ class GeneVocab():
                 self.gene2idx = {gene: i for i, gene in enumerate(self.gene_list)}
                 self.idx2gene = {i: gene for i, gene in enumerate(self.gene_list)}
                 self.vocab_size = len(self.gene_list)
+
+    def align_features(self, adata_new):
+        """
+        The index of features/gens should be aligned across different datasets.
+        """
+        self.update_gene_dict(adata_new)
+        adata_new = adata_new[:, self.gene_list]
+        return adata_new
 
     def __len__(self):
         return self.vocab_size
