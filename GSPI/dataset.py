@@ -1,9 +1,44 @@
+import os
+import sys
+import pandas as pd
+
 # load the dataset and save to a local directory
 def get_gene_dict(adata):
     gene_dict = {}
     for i, gene in enumerate(adata.var_names):
         gene_dict[gene] = i
     return gene_dict
+
+def get_gene_position(gtf_file):
+    """
+    Reorder the genes based on the genomic position of genes
+    """
+    genomic_dict = {}
+    # only print $2 == "gene"
+    with open(gtf_file, "r") as f:
+        for line in f:
+            if not line.startswith("#"):
+                line = line.strip().split("\t")
+                if line[2] == "gene":
+                    chr_name = line[0]
+                    start_pos = line[3]
+                    # end_pos = line[4]
+                    ids = line[8].split(";")
+                    gene_name = ids[3].split("=")[1]
+                    genomic_dict[gene_name] = [chr_name, int(start_pos)]
+                    # if chr_name not in chr_set:
+                    #     chr_set.add(chr_name)
+                    #     chr_dict = {}
+                    #     chr_dict[gene_name] = [int(start_pos), int(end_pos)]
+                    # else:
+                    #     chr_dict[gene_name] = [int(start_pos), int(end_pos)]
+                    #     genomic_dict[chr_name] = chr_dict
+    genomic_df = pd.DataFrame(genomic_dict).T
+    genomic_df.index.name = "gene_name"
+    genomic_df.rename(columns={0: "chr", 1: "start", }, inplace=True)
+    genomic_df.sort_values(by=["chr", "start"], inplace=True)
+    return genomic_df
+    
 
 class GeneVocab():
     """
