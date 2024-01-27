@@ -1,6 +1,9 @@
 import os
 import sys
+import torch
+import numpy as np
 import pandas as pd
+from torch_geometric.data import Data
 
 # load the dataset and save to a local directory
 def get_gene_dict(adata):
@@ -72,7 +75,19 @@ class GeneVocab():
         self.update_gene_dict(adata_new)
         adata_new = adata_new[:, self.gene_list]
         return adata_new
-
+    
+    def sort_by_genomic_position(self, gtf_file):
+        """
+        Reorder the genes based on the genomic position of genes
+        """
+        genomic_df = get_gene_position(gtf_file)
+        self.gene_rank = genomic_df.index.tolist()
+        # sort the self.genelist based on the gene rank
+        self.gene_list.sort(key=lambda x: self.gene_rank.index(x))
+        self.gene2idx = {gene: i for i, gene in enumerate(self.gene_list)}
+        self.idx2gene = {i: gene for i, gene in enumerate(self.gene_list)}
+        self.vocab_size = len(self.gene_rank)
+        
     def __len__(self):
         return self.vocab_size
     
@@ -91,3 +106,33 @@ class GeneVocab():
             return key in self.gene2idx
         else:
             raise KeyError("key must be either int or str")
+        
+
+class SinglecellData(Data):
+    """
+    The dataset class for single-cell data.
+    """
+    def __init__(self, mdata, gene_vocab):
+        super(SinglecellData, self).__init__()
+        self.gene_vocab = gene_vocab
+
+        rna_adata = mdata.mod["rna"]
+        prot_adata = mdata.mod["protein"]
+        self.protein_idx = prot_adata.var_names
+        
+        adj_mtx = rna_adata.obsp["connectivities"].toarray()
+        edge_index = adj_mtx.nonzero()
+        edge_index = torch.tensor(edge_index, dtype=torch.long).contiguous()
+        concat_data = np.concatenate((rna_adata.X, prot_adata.X), axis=1)
+        self.data = Data(x=concat_data, edge_index=edge_index)
+
+    def align_features(self, mdata_new):
+        """
+        The index of features/genes should be aligned 
+        across different datasets.
+        """
+        new_rna_adata = mdata_new.mod["rna"]
+        new_prot_adata = mdata_new.mod["protein"]
+        common_rna = set(self.gene_vocab.gene_list).intersection(set(new_rna_adata.var_names))
+        common_prot = set(self.gene_vocab.gene_list).intersection(set(new_prot_adata.var_names))
+        
