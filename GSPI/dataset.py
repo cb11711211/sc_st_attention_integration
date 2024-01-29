@@ -3,6 +3,7 @@ import sys
 import torch
 import numpy as np
 import pandas as pd
+import anndata as ad
 from torch_geometric.data import Data
 
 # load the dataset and save to a local directory
@@ -12,7 +13,7 @@ def get_gene_dict(adata):
         gene_dict[gene] = i
     return gene_dict
 
-def get_gene_position(gtf_file):
+def get_gene_position(gtf_file, gene_id_split=" "):
     """
     Reorder the genes based on the genomic position of genes
     """
@@ -25,17 +26,11 @@ def get_gene_position(gtf_file):
                 if line[2] == "gene":
                     chr_name = line[0]
                     start_pos = line[3]
-                    # end_pos = line[4]
                     ids = line[8].split(";")
-                    gene_name = ids[3].split("=")[1]
+                    gene_name = ids[2 if gene_id_split == " " else 3].split(
+                        gene_id_split)[2 if gene_id_split == " " else 1]
+                    gene_name = gene_name.replace('"', '')
                     genomic_dict[gene_name] = [chr_name, int(start_pos)]
-                    # if chr_name not in chr_set:
-                    #     chr_set.add(chr_name)
-                    #     chr_dict = {}
-                    #     chr_dict[gene_name] = [int(start_pos), int(end_pos)]
-                    # else:
-                    #     chr_dict[gene_name] = [int(start_pos), int(end_pos)]
-                    #     genomic_dict[chr_name] = chr_dict
     genomic_df = pd.DataFrame(genomic_dict).T
     genomic_df.index.name = "gene_name"
     genomic_df.rename(columns={0: "chr", 1: "start", }, inplace=True)
@@ -68,12 +63,25 @@ class GeneVocab():
                 self.idx2gene = {i: gene for i, gene in enumerate(self.gene_list)}
                 self.vocab_size = len(self.gene_list)
 
-    def align_features(self, adata_new):
+    def align_features(self, adata):
         """
-        The index of features/gens should be aligned across different datasets.
+        Input: adata, has the some genes but not all genes in gene_vocab
+        Output: adata_new, has the same genes as gene_vocab
         """
-        self.update_gene_dict(adata_new)
-        adata_new = adata_new[:, self.gene_list]
+        # filter the genes in adata that are duplicate
+        adata = adata[:, ~adata.var_names.duplicated()]
+        # padding the rna features which are in the initial gene_vocab but not in the new adata
+        new_gene_list = adata.var_names
+        blank_gene_list = list(set(self.gene_list).difference(set(new_gene_list)))
+        # set the expression of blank genes to 0
+        adata_new_df = pd.DataFrame(adata.X, index=adata.obs_names, columns=adata.var_names)
+        blank_gene_df = pd.DataFrame(np.zeros((adata.shape[0], len(blank_gene_list))), 
+                                    index=adata.obs_names, columns=blank_gene_list)
+        adata_new_df = pd.concat([adata_new_df, blank_gene_df], axis=1)
+        adata_new_df = adata_new_df.loc[:, self.gene_list]
+        adata_new_var_df = pd.DataFrame(index=adata_new_df.columns)
+        adata_new = ad.AnnData(adata_new_df.values, obs=adata.obs, var=adata_new_var_df)
+        adata_new.uns = adata.uns
         return adata_new
     
     def sort_by_genomic_position(self, gtf_file):
@@ -118,6 +126,12 @@ class SinglecellData(Data):
 
         rna_adata = mdata.mod["rna"]
         prot_adata = mdata.mod["protein"]
+        # get the same cells in both rna and protein
+        common_cells = list(set(rna_adata.obs_names).intersection(
+            set(prot_adata.obs_names)))
+        rna_adata = rna_adata[common_cells]
+        prot_adata = prot_adata[common_cells]
+        
         self.protein_idx = prot_adata.var_names
         
         adj_mtx = rna_adata.obsp["connectivities"].toarray()
@@ -133,6 +147,15 @@ class SinglecellData(Data):
         """
         new_rna_adata = mdata_new.mod["rna"]
         new_prot_adata = mdata_new.mod["protein"]
-        common_rna = set(self.gene_vocab.gene_list).intersection(set(new_rna_adata.var_names))
-        common_prot = set(self.gene_vocab.gene_list).intersection(set(new_prot_adata.var_names))
+        common_rna = set(self.gene_vocab.gene_list).intersection(
+                    set(new_rna_adata.var_names))
+        new_rna_adata_filtered = new_rna_adata[:, common_rna]
+        # padding the rna features which are in the initial gene_vocab but not in the new adata
+        new_rna_adata_filtered_pad = self.gene_vocab.align_features(new_rna_adata_filtered)
         
+
+        # padding the protein features
+        prot_exp = new_prot_adata[:, self.protein_idx].X
+        # padding the rna features
+        # align the features
+

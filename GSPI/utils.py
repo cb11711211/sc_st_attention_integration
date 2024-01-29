@@ -17,7 +17,11 @@ def construct_spatial_adata(data_path, rna_data, prot_data):
     Construct spatial anndata for the spatial cite-seq matrix
 
     Params:
-
+        data_path: the path to the data
+        rna_data: the rna data file name
+        prot_data: the protein data file name
+    Return:
+        spatial_mudata: the spatial multi-omics anndata
     """
     rna_data = pd.read_csv(data_path + rna_data)
     prot_data = pd.read_csv(data_path + prot_data)

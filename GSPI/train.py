@@ -17,7 +17,6 @@ class Trainer():
     def __init__(
         self, 
         data: Data, 
-        gene_vocab: GeneVocab,
         rna_input_dim: int, 
         prot_input_dim: int,
         hidden_dim: int,
@@ -38,7 +37,6 @@ class Trainer():
         beta: float=0.499,
     ):
         self.data = data
-        self.gene_vocab = gene_vocab
         self.model_choice = model_choice
         self.epochs = epochs
         self.rna_input_dim = rna_input_dim
