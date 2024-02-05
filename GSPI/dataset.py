@@ -70,6 +70,9 @@ class GeneVocab():
         """
         # filter the genes in adata that are duplicate
         adata = adata[:, ~adata.var_names.duplicated()]
+        # filter the genes not present in the gene_vocab
+        adata = adata[:, adata.var_names.isin(self.gene_list)]
+
         # padding the rna features which are in the initial gene_vocab but not in the new adata
         new_gene_list = adata.var_names
         blank_gene_list = list(set(self.gene_list).difference(set(new_gene_list)))
