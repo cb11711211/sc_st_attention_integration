@@ -12,6 +12,8 @@ import torch
 from sklearn.metrics import mean_squared_error
 from scipy.sparse import coo_matrix
 
+from scipy.stats import ks_2samp
+
 def construct_spatial_adata(data_path, rna_data, prot_data):
     """
     Construct spatial anndata for the spatial cite-seq matrix
@@ -295,16 +297,73 @@ def get_permuted_graph(adata, neighbors=10, sim_thres=0.5, preserve_rate=0.5):
     return permuted_graph
 
 
-def latent_mixing_metric():
+def latent_mixing_metric(embeddings, labels):
     """
-    Calculate the latent mixing metric for the integration results
+    Calculate the latent mixing metric for the integration results.
+    
+    Parameters:
+    - embeddings: A 2D array where each row represents a latent embedding.
+    - labels: An array of labels indicating the group of each embedding.
+    
+    Returns:
+    - metric: A scalar value representing the mixing metric.
     """
-    pass
+    # Calculate the silhouette score as an example metric
+    metric = silhouette_score(embeddings, labels)
+    return metric
 
 
-def measurement_mixing_metric():
+def measurement_mixing_metric(measurements, labels):
     """
-    Calculate the measurement mixing metric for the integration results
+    Calculate the measurement mixing metric for the integration results.
+    
+    Parameters:
+    - measurements: A 2D array where each row represents the measurements of a sample.
+    - labels: An array of labels indicating the group of each sample.
+    
+    Returns:
+    - metric: A scalar value representing the mixing metric.
     """
+    # Example: Use the Kolmogorov-Smirnov statistic as a metric
+    unique_labels = np.unique(labels)
+    ks_stats = []
+    for i in range(len(unique_labels)):
+        for j in range(i + 1, len(unique_labels)):
+            group_i = measurements[labels == unique_labels[i]]
+            group_j = measurements[labels == unique_labels[j]]
+            ks_stat, _ = ks_2samp(group_i.ravel(), group_j.ravel())
+            ks_stats.append(ks_stat)
+    metric = np.mean(ks_stats)
+    return metric
 
 
+# Function to build the weighted adjacency matrix
+def build_adjacency_matrix(spots, alpha, T=0.05):
+    # spots = np.array(spots)
+    # Calculate the pairwise Euclidean distances using broadcasting
+    diff = spots[:, np.newaxis, :] - spots[np.newaxis, :, :]
+    distances = np.sqrt(np.sum(diff**2, axis=-1))
+    
+    # Apply the exponential decay function to the distances
+    W = np.exp(-alpha * distances)
+    W[W<T] = 0
+    
+    # Zero out the diagonal (no self-connections)
+    np.fill_diagonal(W, 0)
+    
+    return W
+
+def build_adjacency_matrix_torch(spots, alpha, T=0.005, device='cuda'):
+    spots = torch.tensor(spots, dtype=torch.float32, device=device)
+    # Calculate the pairwise Euclidean distances using broadcasting
+    diff = spots[:, None, :] - spots[None, :, :]
+    distances = torch.sqrt(torch.sum(diff**2, dim=-1))
+    
+    # Apply the exponential decay function to the distances
+    W = torch.exp(-alpha * distances)
+    W.masked_fill_(W<T, 0)
+    
+    # Zero out the diagonal (no self-connections)
+    W.fill_diagonal_(0)
+    
+    return W

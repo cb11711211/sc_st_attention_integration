@@ -12,3 +12,5 @@ package.json
 # add folder __pycache__
 __pycache__/
 processed/
+# add folder analysis
+analysis/

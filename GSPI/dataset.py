@@ -139,6 +139,7 @@ class SinglecellData(Data):
         
         adj_mtx = rna_adata.obsp["connectivities"].toarray()
         edge_index = adj_mtx.nonzero()
+        edge_index = np.array(edge_index)
         edge_index = torch.tensor(edge_index, dtype=torch.long).contiguous()
         concat_data = np.concatenate((rna_adata.X, prot_adata.X), axis=1)
         self.data = Data(x=concat_data, edge_index=edge_index)

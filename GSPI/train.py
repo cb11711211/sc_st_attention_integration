@@ -285,7 +285,7 @@ class Trainer():
         return total_loss
     
 
-    def _inference_step(self, loader, mode="inference"):
+    def _inference_step(self, loader, model, optim, alpha=0.4, beta=0.1, split=0):
         """
         Try to infer the spatial coordinates of the cells, given the pre-trained model.
         Input data: 
@@ -298,15 +298,38 @@ class Trainer():
                 imputation loss will be used. This step could be done by Gaussian
                 Process Regression.
         """
-        self.model.eval()
+        model.train()
         total_loss = 0
-        # align the index of features with pre-trained model
-        
-        # randomly mask 50% of the input data
+        for batch in loader:
+            batch = batch.to(self.device)
+            masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
+            train_mask = batch.train_mask
+            rna_recon, prot_recon, embedding = model(
+                        masked_batch, 
+                        permute=False,
+                        preserve_prob=self.preserve_rate
+                    )
+            rna_recon = rna_recon[train_mask]
+            prot_recon = prot_recon[train_mask]
+            embedding = embedding[train_mask]
+            optim.zero_grad()
+            loss = alpha * self.masked_value_loss(
+                    rna_recon, 
+                    masked_batch.x[train_mask, :self.rna_input_dim],
+                    masked_batch.value_mask[train_mask, :self.rna_input_dim]
+                ) + (1 - alpha) * self.masked_value_loss(
+                    prot_recon, 
+                    masked_batch.x[train_mask, self.rna_input_dim:],
+                    masked_batch.value_mask[train_mask, self.rna_input_dim:]
+                )
+            loss.backward()
+            optim.step()
+            total_loss += loss.item()
+        return total_loss / len(loader)
 
 
 
-    def setup(self, split=0):
+    def setup(self, split=None, mode="pre-train"):
         if self.model_choice == "Graph Cross Attention":
             self.model = GraphCrossAttn(
                 rna_input_dim=self.rna_input_dim,
@@ -326,24 +349,42 @@ class Trainer():
                 heads=self.heads,
                 num_blocks=self.num_blocks,
             ).to(self.device)
+        
+        if split==None:
+            self.train_loader = NeighborLoader(
+                self.data,
+                input_nodes=self.data.train_mask,
+                num_neighbors=[4,3],
+                batch_size=self.batch_size,
+                replace=False,
+                shuffle=False,
+            )
+            self.val_loader = NeighborLoader(
+                self.data,
+                input_nodes=self.data.val_mask,
+                num_neighbors=[4,3],
+                batch_size=self.batch_size,
+                replace=False,
+                shuffle=False,
+            )
+        else:
+            self.train_loader = NeighborLoader(
+                self.data,
+                input_nodes=self.data.train_mask[:, split],
+                num_neighbors=[4,3],
+                batch_size=self.batch_size,
+                replace=False,
+                shuffle=False,
+            )
 
-        self.train_loader = NeighborLoader(
-            self.data,
-            input_nodes=self.data.train_mask[:, split],
-            num_neighbors=[4,3],
-            batch_size=128,
-            replace=False,
-            shuffle=False,
-        )
-
-        self.val_loader = NeighborLoader(
-            self.data,
-            input_nodes=self.data.val_mask[:, split],
-            num_neighbors=[4,3],
-            batch_size=128,
-            replace=False,
-            shuffle=False,
-        )
+            self.val_loader = NeighborLoader(
+                self.data,
+                input_nodes=self.data.val_mask[:, split],
+                num_neighbors=[4,3],
+                batch_size=self.batch_size,
+                replace=False,
+                shuffle=False,
+            )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -353,7 +394,7 @@ class Trainer():
     def train(self):
         train_history_for_splits = []
         val_history_for_splits = []
-        self.setup(split=0)
+        # self.setup(split=0)
         lowest_loss = torch.inf
         for split in range(self.num_splits):
             self.setup(split=split)
@@ -387,28 +428,40 @@ class Trainer():
 
     def fine_tune(
             self,
-            mode: str="inference",
+            model: nn.Module,
             epochs: int=10,
-            model_name: str="best_model.pt", 
+            model_name: str="best_model.pt",
+            save_name: str="tmp",
+            alpha=0.4, 
+            beta=0.1,
         ):
         """
         Loading the pre-trained best model and fine-tune it for downstream tasks.
         """
-        model = self.model
+        model = model
         optim = torch.optim.Adam(model.parameters(), lr=1e-4)
-        cpt = torch.load(f"./save_model/{model_name}")
+        cpt = torch.load(f"../save_model/{model_name}")
         # load parameters from the pre-trained model
-        for name, _ in model.named_children():
-            model[name].load_state_dict(cpt["model"][name])
+        # for name, _ in model.named_children():
+        #     model[name].load_state_dict(cpt["model"][name])
+        model.load_state_dict(cpt["model"])
         optim.load_state_dict(cpt["optimizer"])
         model = model.to(self.device)
-        self.setup(split=self.best_split)
+        self.setup()
         lowest_loss = torch.inf
+        loss_history = []
         # fine-tune the model
         for epoch in range(epochs):
-            inference_loss = self._inference_step(self.train_loader, mode=mode)
-
-            
+            inference_loss = self._inference_step(self.train_loader, model, optim)
+            loss_history.append(inference_loss)
+            print(f"Epoch {epoch + 1}/{epochs}, Loss: {inference_loss}")
+            if inference_loss < lowest_loss:
+                lowest_loss = inference_loss
+                torch.save({
+                    'model': model.state_dict(),
+                    'optimizer': optim.state_dict()
+                }, f"../save_model/best_{save_name}")
+        return loss_history            
 
     def ddp_run(rank: int, world_size: int, dataset: None, model: nn.Module):
         os.environ["MASTER_ADDR"] = "localhost"
