@@ -35,6 +35,7 @@ class Trainer():
         num_splits: int=5,
         alpha: float=0.499,
         beta: float=0.499,
+        lambda_reg: float=1e-5,
     ):
         self.data = data
         self.model_choice = model_choice
@@ -55,6 +56,7 @@ class Trainer():
         self.num_splits = num_splits
         self.alpha = alpha
         self.beta = beta
+        self.lambda_reg = lambda_reg
         self.train_losses = []
         self.val_losses = []
         self.best_split = None
@@ -83,9 +85,33 @@ class Trainer():
             return torch.sum(p * torch.log(p + 1e-6 / q + 1e-6))
         KL_div = KL_divergence(embedding, embedding_perm).mean()
         return KL_div
-        
 
-    def _train_step(self, loader, alpha=0.4, beta=0.1, split=0):
+    def calculate_loss(self, masked_batch, train_mask):
+        """Calculate the loss for the model"""
+        outputs = self.model(masked_batch, permute=self.permute, preserve_prob=self.preserve_rate)
+
+        rna_recon, prot_recon, embedding = outputs[:3]
+        rna_recon = rna_recon[train_mask]
+        prot_recon = prot_recon[train_mask]
+        embedding = embedding[train_mask]
+
+        loss = self.alpha * self.masked_value_loss(
+            rna_recon,
+            masked_batch.x[train_mask, :self.rna_input_dim],
+            masked_batch.value_mask[train_mask, :self.rna_input_dim]
+        ) + self.beta * self.masked_value_loss(
+            prot_recon,
+            masked_batch.x[train_mask, self.rna_input_dim:],
+            masked_batch.value_mask[train_mask, self.rna_input_dim:]
+        ) + (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding)
+        
+        if self.permute:
+            embedding_perm = outputs[3][train_mask]
+            loss += (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding_perm)
+
+        return loss
+
+    def _train_step(self, loader, split=0):
         self.model.train()
         total_loss = 0
         for batch in loader:
@@ -93,101 +119,16 @@ class Trainer():
             batch = batch.to(self.device) # input batch data
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             train_mask = batch.train_mask[:, split]
-
-            if self.permute:
-                if self.model_choice == "Spatial Graph Cross Attention":
-                    rna_recon, prot_recon, spatial_recon, embedding, embedding_perm = self.model(
-                        masked_batch, 
-                        permute=True,
-                        preserve_prob=self.preserve_rate
-                        )
-                else:
-                    rna_recon, prot_recon, embedding, embedding_perm = self.model(
-                        masked_batch, 
-                        permute=True,
-                        preserve_prob=self.preserve_rate
-                        )
-                rna_recon = rna_recon[train_mask]
-                prot_recon = prot_recon[train_mask]
-                embedding = embedding[train_mask]
-                embedding_perm = embedding_perm[train_mask]
-                if self.model_choice == "Spatial Graph Cross Attention":
-                    loss = alpha * self.masked_value_loss(
-                        rna_recon,
-                        masked_batch.x[train_mask, :self.rna_input_dim],
-                        masked_batch.value_mask[train_mask, 
-                                                :self.rna_input_dim]
-                    ) + beta * self.masked_value_loss(
-                        prot_recon,
-                        masked_batch.x[train_mask, 
-                                        self.rna_input_dim:self.rna_input_dim+
-                                        self.prot_input_dim],
-                        masked_batch.value_mask[train_mask, 
-                                                self.rna_input_dim:self.rna_input_dim+
-                                                self.prot_input_dim]
-                    ) + (1 - alpha - beta) * self.contrastive_loss(
-                        embedding, embedding_perm                    
-                    )
-                else:
-                    loss = alpha * self.masked_value_loss(
-                        rna_recon, 
-                        masked_batch.x[train_mask, :self.rna_input_dim],
-                        masked_batch.value_mask[train_mask, :self.rna_input_dim]
-                    ) + beta * self.masked_value_loss(
-                        prot_recon, 
-                        masked_batch.x[train_mask, self.rna_input_dim:],
-                        masked_batch.value_mask[train_mask, self.rna_input_dim:]
-                    ) + (1 - alpha - beta) * self.contrastive_loss(embedding, embedding_perm)
-            else:
-                if self.model_choice == "Spatial Graph Cross Attention":
-                    rna_recon, prot_recon, spatial_recon, embedding = self.model(
-                        masked_batch, 
-                        permute=False,
-                        preserve_prob=self.preserve_rate
-                        )
-                    spatial_recon = spatial_recon[train_mask]
-                else:
-                    rna_recon, prot_recon, embedding = self.model(
-                        masked_batch, 
-                        permute=False,
-                        preserve_prob=self.preserve_rate
-                        )
-                rna_recon = rna_recon[train_mask]
-                prot_recon = prot_recon[train_mask]
-                embedding = embedding[train_mask]
-                if self.model_choice == "Spatial Graph Cross Attention":
-                    loss = alpha * self.masked_value_loss(
-                        rna_recon,
-                        masked_batch.x[train_mask, :self.rna_input_dim],
-                        masked_batch.value_mask[train_mask, 
-                                                :self.rna_input_dim]
-                    ) + beta * self.masked_value_loss(
-                        prot_recon,
-                        masked_batch.x[train_mask, 
-                                        self.rna_input_dim:self.rna_input_dim + 
-                                        self.prot_input_dim],
-                        masked_batch.value_mask[train_mask, 
-                                                self.rna_input_dim:self.rna_input_dim +
-                                                self.prot_input_dim]
-                    ) + (1 - alpha - beta) * self.contrastive_loss(
-                        embedding, embedding                    
-                    )
-                else:
-                    loss = alpha * self.masked_value_loss(
-                            rna_recon, 
-                            masked_batch.x[train_mask, :self.rna_input_dim],
-                            masked_batch.value_mask[train_mask, :self.rna_input_dim]
-                        ) + (1 - alpha) * self.masked_value_loss(
-                            prot_recon, 
-                            masked_batch.x[train_mask, self.rna_input_dim:],
-                            masked_batch.value_mask[train_mask, self.rna_input_dim:]
-                        )
+            loss = self.calculate_loss(masked_batch, train_mask)
+            # Regularized loss
+            reg_loss = self.model.regularization_loss()
+            total_loss = loss + self.lambda_reg * reg_loss
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
         return total_loss
 
-    def _val_step(self, loader, alpha=0.5, beta=0.4, split=0):
+    def _val_step(self, loader, split=0):
         self.model.eval()
         total_loss = 0
         for batch in loader:
@@ -195,92 +136,7 @@ class Trainer():
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             val_mask = batch.val_mask[:, split]
             with torch.no_grad():
-                if self.permute:
-                    if self.model_choice == "Spatial Graph Cross Attention":
-                        rna_recon, prot_recon, spatial_recon, embedding, embedding_perm = self.model(
-                            masked_batch, 
-                            permute=self.permute,
-                            preserve_prob=self.preserve_rate
-                            )
-                        spatial_recon = spatial_recon[val_mask]
-                    else:
-                        rna_recon, prot_recon, embedding, embedding_perm = self.model(
-                            masked_batch, 
-                            permute=self.permute,
-                            preserve_prob=self.preserve_rate
-                            )
-                    rna_recon = rna_recon[val_mask]
-                    prot_recon = prot_recon[val_mask]
-                    embedding = embedding[val_mask]
-                    embedding_perm = embedding_perm[val_mask]
-                    if self.model_choice == "Spatial Graph Cross Attention":
-                        loss = alpha * self.masked_value_loss(
-                            rna_recon,
-                            masked_batch.x[val_mask, :self.rna_input_dim],
-                            masked_batch.value_mask[val_mask, 
-                                                    :self.rna_input_dim]
-                        ) + beta * self.masked_value_loss(
-                            prot_recon,
-                            masked_batch.x[val_mask, 
-                                            self.rna_input_dim:self.rna_input_dim +
-                                            self.prot_input_dim],
-                            masked_batch.value_mask[val_mask, 
-                                                    self.rna_input_dim:self.rna_input_dim+
-                                                    self.prot_input_dim]
-                        ) + (1 - alpha - beta) * self.contrastive_loss(
-                            embedding, embedding_perm                    
-                        )
-                    else:
-                        loss = alpha * self.masked_value_loss(
-                            rna_recon, 
-                            masked_batch.x[val_mask, :self.rna_input_dim],
-                            masked_batch.value_mask[val_mask, :self.rna_input_dim]
-                        ) + beta * self.masked_value_loss(
-                            prot_recon, 
-                            masked_batch.x[val_mask, self.rna_input_dim:],
-                            masked_batch.value_mask[val_mask, self.rna_input_dim:]
-                        ) + (1 - alpha - beta) * self.contrastive_loss(embedding, embedding_perm)
-                else:
-                    if self.model_choice == "Spatial Graph Cross Attention":
-                        rna_recon, prot_recon, spatial_recon, embedding = self.model(
-                            masked_batch, 
-                            permute=self.permute,
-                            preserve_prob=self.preserve_rate
-                            )
-                        spatial_recon = spatial_recon[val_mask]
-                    else:
-                        rna_recon, prot_recon, _ = self.model(
-                            masked_batch, permute=self.permute
-                            )
-                    rna_recon = rna_recon[val_mask]
-                    prot_recon = prot_recon[val_mask]
-                    if self.model_choice == "Spatial Graph Cross Attention":
-                        loss = alpha * self.masked_value_loss(
-                            rna_recon,
-                            masked_batch.x[val_mask, :self.rna_input_dim],
-                            masked_batch.value_mask[val_mask, 
-                                                    :self.rna_input_dim]
-                        ) + beta * self.masked_value_loss(
-                            prot_recon,
-                            masked_batch.x[val_mask, 
-                                            self.rna_input_dim:self.rna_input_dim + 
-                                            self.prot_input_dim],
-                            masked_batch.value_mask[val_mask, 
-                                                    self.rna_input_dim:self.rna_input_dim +
-                                                    self.prot_input_dim]
-                        ) + (1 - alpha - beta) * self.contrastive_loss(
-                            embedding, embedding                    
-                        )
-                    else:
-                        loss = alpha * self.masked_value_loss(
-                            rna_recon, 
-                            masked_batch.x[val_mask, :self.rna_input_dim],
-                            masked_batch.value_mask[val_mask, :self.rna_input_dim]
-                        ) + (1 - alpha) * self.masked_value_loss(
-                            prot_recon, 
-                            masked_batch.x[val_mask, self.rna_input_dim:],
-                            masked_batch.value_mask[val_mask, self.rna_input_dim:]
-                        )
+                loss = self.calculate_loss(masked_batch, val_mask)
             total_loss += loss.item()
         return total_loss
     
@@ -438,7 +294,6 @@ class Trainer():
         """
         Loading the pre-trained best model and fine-tune it for downstream tasks.
         """
-        model = model
         optim = torch.optim.Adam(model.parameters(), lr=1e-4)
         cpt = torch.load(f"../save_model/{model_name}")
         # load parameters from the pre-trained model
