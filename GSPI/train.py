@@ -99,11 +99,11 @@ class Trainer():
             rna_recon,
             masked_batch.x[train_mask, :self.rna_input_dim],
             masked_batch.value_mask[train_mask, :self.rna_input_dim]
-        ) + self.beta * self.masked_value_loss(
+        ) + (1 - self.alpha) * self.masked_value_loss(
             prot_recon,
             masked_batch.x[train_mask, self.rna_input_dim:],
             masked_batch.value_mask[train_mask, self.rna_input_dim:]
-        ) + (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding)
+        )
         
         if self.permute:
             embedding_perm = outputs[3][train_mask]
@@ -258,14 +258,10 @@ class Trainer():
             for epoch in range(self.epochs):
                 train_loss = self._train_step(
                     self.train_loader, 
-                    alpha=self.alpha, 
-                    beta=self.beta, 
                     split=split
                     )
                 val_loss = self._val_step(
                     self.val_loader, 
-                    alpha=self.alpha, 
-                    beta=self.beta, 
                     split=split
                     )
                 self.scheduler.step(val_loss)
@@ -288,8 +284,6 @@ class Trainer():
             epochs: int=10,
             model_name: str="best_model.pt",
             save_name: str="tmp",
-            alpha=0.4, 
-            beta=0.1,
         ):
         """
         Loading the pre-trained best model and fine-tune it for downstream tasks.
@@ -357,6 +351,7 @@ class Trainer():
                 loss = F.cross_entropy(out, batch.x[:batch.batch_size])
                 loss.backward()
                 optimizer.step()
+            
 
 
 

@@ -15,3 +15,6 @@ processed/
 # add folder analysis
 analysis/
 GSPI/models/CLL_union.hdf5
+
+# # add .png files
+# *.png

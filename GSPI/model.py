@@ -56,6 +56,12 @@ class GraphCrossAttn(nn.Module):
         self.prot_decoding = Linear(hidden_dim, embedding_dim)
         self.rna_recon = Linear(embedding_dim, rna_input_dim)
         self.prot_recon = Linear(embedding_dim, prot_input_dim)
+
+    def regularization_loss(self):
+        reg_loss = 0
+        reg_loss += torch.norm(self.rna_embedding.weight, 2)
+        reg_loss += torch.norm(self.prot_embedding.weight, 2)
+        return reg_loss
         
     def forward(self, data, preserve_prob=0.5, permute=False):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
