@@ -188,7 +188,7 @@ class SCDataProcessor:
         scData = Data(x=concat_data, edge_index=edge_index)
         return scData
 
-    def split_data(self, scData, num_splits=2, num_val=0.2, num_test=0.2):
+    def split_data(scData, num_splits=2, num_val=0.2, num_test=0.2):
         tsf = RandomNodeSplit(num_splits=num_splits, num_val=num_val, num_test=num_test, key=None)
         training_data = tsf(scData)
         return training_data

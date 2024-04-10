@@ -86,9 +86,16 @@ class GraphCrossAttn(nn.Module):
         prot_embedding = self.prot_decoding(embedding)
         rna_recon = self.rna_recon(rna_embedding)
         prot_recon = self.prot_recon(prot_embedding)
+
+        results = {
+            "rna_recon": rna_recon,
+            "prot_recon": prot_recon,
+            "embedding": embedding
+        }
         if permute:
-            return rna_recon, prot_recon, embedding, embedding_perm
-        return rna_recon, prot_recon, embedding
+            results["embedding_perm"] = embedding_perm
+
+        return results
 
 
 class GraphCrossAttn_spatial_encoding(GraphCrossAttn):

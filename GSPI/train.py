@@ -88,12 +88,10 @@ class Trainer():
 
     def calculate_loss(self, masked_batch, train_mask):
         """Calculate the loss for the model"""
-        outputs = self.model(masked_batch, permute=self.permute, preserve_prob=self.preserve_rate)
-
-        rna_recon, prot_recon, embedding = outputs[:3]
-        rna_recon = rna_recon[train_mask]
-        prot_recon = prot_recon[train_mask]
-        embedding = embedding[train_mask]
+        results = self.model(masked_batch, permute=self.permute, preserve_prob=self.preserve_rate)
+        rna_recon = results["rna_recon"][train_mask]
+        prot_recon = results["prot_recon"][train_mask]
+        embedding = results["embedding"][train_mask]
 
         loss = self.alpha * self.masked_value_loss(
             rna_recon,
@@ -106,7 +104,7 @@ class Trainer():
         )
         
         if self.permute:
-            embedding_perm = outputs[3][train_mask]
+            embedding_perm = results["embedding_perm"][train_mask]
             loss += (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding_perm)
 
         return loss
@@ -122,7 +120,7 @@ class Trainer():
             loss = self.calculate_loss(masked_batch, train_mask)
             # Regularized loss
             reg_loss = self.model.regularization_loss()
-            total_loss = loss + self.lambda_reg * reg_loss
+            loss = loss + self.lambda_reg * reg_loss
             loss.backward()
             self.optimizer.step()
             total_loss += loss.item()
@@ -160,14 +158,15 @@ class Trainer():
             batch = batch.to(self.device)
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             train_mask = batch.train_mask
-            rna_recon, prot_recon, embedding = model(
+            results = model(
                         masked_batch, 
                         permute=False,
                         preserve_prob=self.preserve_rate
                     )
-            rna_recon = rna_recon[train_mask]
-            prot_recon = prot_recon[train_mask]
-            embedding = embedding[train_mask]
+            
+            rna_recon = results["rna_recon"][train_mask]
+            prot_recon = results["prot_recon"][train_mask]
+            embedding = results["embedding"][train_mask]
             optim.zero_grad()
             loss = alpha * self.masked_value_loss(
                     rna_recon, 
@@ -182,8 +181,6 @@ class Trainer():
             optim.step()
             total_loss += loss.item()
         return total_loss / len(loader)
-
-
 
     def setup(self, split=None, mode="pre-train"):
         if self.model_choice == "Graph Cross Attention":
@@ -205,49 +202,36 @@ class Trainer():
                 heads=self.heads,
                 num_blocks=self.num_blocks,
             ).to(self.device)
-        
-        if split==None:
-            self.train_loader = NeighborLoader(
-                self.data,
-                input_nodes=self.data.train_mask,
-                num_neighbors=[4,3],
-                batch_size=self.batch_size,
-                replace=False,
-                shuffle=False,
-            )
-            self.val_loader = NeighborLoader(
-                self.data,
-                input_nodes=self.data.val_mask,
-                num_neighbors=[4,3],
-                batch_size=self.batch_size,
-                replace=False,
-                shuffle=False,
-            )
-        else:
-            self.train_loader = NeighborLoader(
-                self.data,
-                input_nodes=self.data.train_mask[:, split],
-                num_neighbors=[4,3],
-                batch_size=self.batch_size,
-                replace=False,
-                shuffle=False,
-            )
 
-            self.val_loader = NeighborLoader(
-                self.data,
-                input_nodes=self.data.val_mask[:, split],
-                num_neighbors=[4,3],
-                batch_size=self.batch_size,
-                replace=False,
-                shuffle=False,
-            )
+        if self.num_splits == 1:
+            self.data.train_mask = self.data.train_mask.squeeze().unsqueeze(1)
+            self.data.val_mask = self.data.val_mask.squeeze().unsqueeze(1)
+            # print(self.data.train_mask.shape)
+
+        self.train_loader = NeighborLoader(
+            self.data,
+            input_nodes=self.data.train_mask[:, split],
+            num_neighbors=[4,3],
+            batch_size=self.batch_size,
+            replace=False,
+            shuffle=False,
+        )
+
+        self.val_loader = NeighborLoader(
+            self.data,
+            input_nodes=self.data.val_mask[:, split],
+            num_neighbors=[4,3],
+            batch_size=self.batch_size,
+            replace=False,
+            shuffle=False,
+        )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
         self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-6
         )
 
-    def train(self):
+    def train(self, plot_loss=False, *args):
         train_history_for_splits = []
         val_history_for_splits = []
         # self.setup(split=0)
@@ -276,7 +260,8 @@ class Trainer():
             train_history_for_splits.append(train_losses)
             val_history_for_splits.append(val_losses)
         print(f"Best model saved at split {self.best_split}")
-        return train_history_for_splits, val_history_for_splits
+        if plot_loss:
+            self.plot_losses_curve(train_history_for_splits, val_history_for_splits)
 
     def fine_tune(
             self,
@@ -311,6 +296,39 @@ class Trainer():
                     'optimizer': optim.state_dict()
                 }, f"../save_model/best_{save_name}")
         return loss_history            
+    
+    def run_embedding(self, scData):
+        """
+        Generate the embedding for multi-omics data.
+        scData: the multi-omics data object.
+        """
+        self.best_model.eval()
+        with torch.no_grad():
+            results = self.best_model(scData)
+        return results["embedding"]
+
+    def plot_losses_curve(
+            self, 
+            train_losses, 
+            val_losses, 
+            title="Training Losses Curve"
+        ):
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        ax.plot(train_losses[0], label="train")
+        ax.plot(val_losses[0], label="validation")
+        ax.title(f"{title}")
+        ax.ylabel("Loss", fontsize=20)
+        ax.xlabel("Epoch", fontsize=20)
+        ax.xticks(fontsize=14)
+        ax.yticks(fontsize=14)
+        plt.legend(prop={'size': 16, 'weight': 'normal'}, handlelength=3)
+        plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+        plt.show()
+
+
+
+
 
     def ddp_run(rank: int, world_size: int, dataset: None, model: nn.Module):
         os.environ["MASTER_ADDR"] = "localhost"
@@ -351,20 +369,3 @@ class Trainer():
                 loss = F.cross_entropy(out, batch.x[:batch.batch_size])
                 loss.backward()
                 optimizer.step()
-            
-
-
-
-
-
-
-
-
-# model.load_state_dict(cpt["model"])
-# optim.load_state_dict(cpt["optimizer"])
-# model.rna_embedding.load_state_dict(cpt["model"]["rna_embedding"])
-# model.prot_embedding.load_state_dict(cpt["model"]["prot_embedding"])
-# model.cross_attn_blocks.load_state_dict(cpt["model"]["cross_attn_blocks"])
-# model.cross_attn_agg.load_state_dict(cpt["model"]["cross_attn_agg"])
-# model.rna_decoding.load_state_dict(cpt["model"]["rna_decoding"])
-# model.prot_decoding.load_state_dict(cpt["model"]["prot_decoding"])
