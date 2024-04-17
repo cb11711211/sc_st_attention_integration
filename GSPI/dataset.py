@@ -164,31 +164,24 @@ class SinglecellData(Data):
         # padding the rna features
         # align the features
 
+def get_edge_index(rna_adata, device):
+    adj_mtx = rna_adata.obsp['connectivities'].toarray()
+    edge_index = adj_mtx.nonzero()
+    edge_index = torch.tensor(np.array(edge_index), dtype=torch.long).contiguous().to(device)
+    return edge_index
 
-class SCDataProcessor:
-    def __init__(self, rna_adata, protein_adata, device='cpu'):
-        self.rna_adata = rna_adata
-        self.protein_adata = protein_adata
-        self.device = device
+def get_concatenated_data(rna_adata, protein_adata, device):
+    concat_data = np.concatenate((rna_adata.X, protein_adata.X), axis=1)
+    concat_data = torch.tensor(concat_data, dtype=torch.float32).to(device)
+    return concat_data
 
-    def get_edge_index(self):
-        adj_mtx = self.rna_adata.obsp['connectivities'].toarray()
-        edge_index = adj_mtx.nonzero()
-        edge_index = torch.tensor(np.array(edge_index), dtype=torch.long).contiguous().to(self.device)
-        return edge_index
+def create_graphData(rna_adata, protein_adata, device):
+    edge_index = get_edge_index(rna_adata, device)
+    concat_data = get_concatenated_data(rna_adata, protein_adata, device)
+    graphData = Data(x=concat_data, edge_index=edge_index)
+    return graphData
 
-    def get_concatenated_data(self):
-        concat_data = np.concatenate((self.rna_adata.X, self.protein_adata.X), axis=1)
-        concat_data = torch.tensor(concat_data, dtype=torch.float32).to(self.device)
-        return concat_data
-
-    def create_scData(self):
-        edge_index = self.get_edge_index()
-        concat_data = self.get_concatenated_data()
-        scData = Data(x=concat_data, edge_index=edge_index)
-        return scData
-
-    def split_data(scData, num_splits=2, num_val=0.2, num_test=0.2):
-        tsf = RandomNodeSplit(num_splits=num_splits, num_val=num_val, num_test=num_test, key=None)
-        training_data = tsf(scData)
-        return training_data
+def split_data(graphData, num_splits=2, num_val=0.2, num_test=0.2):
+    tsf = RandomNodeSplit(num_splits=num_splits, num_val=num_val, num_test=num_test, key=None)
+    training_data = tsf(graphData)
+    return training_data

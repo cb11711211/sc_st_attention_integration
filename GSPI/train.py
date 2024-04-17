@@ -3,15 +3,15 @@ import scipy as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from muon import MuData
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.loader import NeighborLoader
-from torch_geometric.sampler import NegativeSampling
-from sklearn.neighbors import NearestNeighbors
 
 from model import GraphCrossAttn, GraphCrossAttn_spatial_encoding
-from dataset import GeneVocab
+from dataset import create_graphData
 
 class Trainer():
     def __init__(
@@ -135,6 +135,8 @@ class Trainer():
             val_mask = batch.val_mask[:, split]
             with torch.no_grad():
                 loss = self.calculate_loss(masked_batch, val_mask)
+                reg_loss = self.model.regularization_loss()
+                loss = loss + self.lambda_reg * reg_loss
             total_loss += loss.item()
         return total_loss
     
@@ -158,29 +160,12 @@ class Trainer():
             batch = batch.to(self.device)
             masked_batch = self.mask_input(batch, mask_ratio=self.mask_ratio)
             train_mask = batch.train_mask
-            results = model(
-                        masked_batch, 
-                        permute=False,
-                        preserve_prob=self.preserve_rate
-                    )
-            
-            rna_recon = results["rna_recon"][train_mask]
-            prot_recon = results["prot_recon"][train_mask]
-            embedding = results["embedding"][train_mask]
             optim.zero_grad()
-            loss = alpha * self.masked_value_loss(
-                    rna_recon, 
-                    masked_batch.x[train_mask, :self.rna_input_dim],
-                    masked_batch.value_mask[train_mask, :self.rna_input_dim]
-                ) + (1 - alpha) * self.masked_value_loss(
-                    prot_recon, 
-                    masked_batch.x[train_mask, self.rna_input_dim:],
-                    masked_batch.value_mask[train_mask, self.rna_input_dim:]
-                )
+            loss = self.calculate_loss(masked_batch, train_mask)
             loss.backward()
             optim.step()
             total_loss += loss.item()
-        return total_loss / len(loader)
+        return total_loss
 
     def setup(self, split=None, mode="pre-train"):
         if self.model_choice == "Graph Cross Attention":
@@ -297,15 +282,19 @@ class Trainer():
                 }, f"../save_model/best_{save_name}")
         return loss_history            
     
-    def run_embedding(self, scData):
+    def get_embedding(
+            self,
+            graphData: Data
+        ):
         """
         Generate the embedding for multi-omics data.
-        scData: the multi-omics data object.
+        Params:
+            graphData: torch_geometric.data.Data
         """
         self.best_model.eval()
         with torch.no_grad():
-            results = self.best_model(scData)
-        return results["embedding"]
+            results = self.best_model(graphData)
+        return results["embedding"].cpu().numpy()
 
     def plot_losses_curve(
             self, 
@@ -317,17 +306,14 @@ class Trainer():
         fig, ax = plt.subplots()
         ax.plot(train_losses[0], label="train")
         ax.plot(val_losses[0], label="validation")
-        ax.title(f"{title}")
-        ax.ylabel("Loss", fontsize=20)
-        ax.xlabel("Epoch", fontsize=20)
-        ax.xticks(fontsize=14)
-        ax.yticks(fontsize=14)
+        ax.title.set_text(f"{title}")
+        ax.set_ylabel("Loss", fontsize=20)
+        ax.set_xlabel("Epoch", fontsize=20)
+        # ax.set_xticks(range(0, len(train_losses[0]), 5))
+        # ax.set_yticks(range(0, 100, 10))
         plt.legend(prop={'size': 16, 'weight': 'normal'}, handlelength=3)
         plt.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
         plt.show()
-
-
-
 
 
     def ddp_run(rank: int, world_size: int, dataset: None, model: nn.Module):

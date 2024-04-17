@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import muon as mu
 import torch
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, silhouette_score
 from scipy.sparse import coo_matrix
 
 from scipy.stats import ks_2samp

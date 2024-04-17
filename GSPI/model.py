@@ -13,12 +13,21 @@ class GraphAttnBlock(nn.Module):
         self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=0.2, add_self_loops=False)
         self.lin2 = Linear(-1, channel_out * heads)
 
-    def forward(self, x, edge_index):
-        x = self.conv1(x, edge_index) + self.lin1(x)
-        x = self.ln(x)
-        x = x.relu()
-        x = self.conv2(x, edge_index) + self.lin2(x)
-        return x
+    def forward(self, x, edge_index, return_attention_weights=False):
+        # An issue indicates that if the return_attention_weights is set to a value,
+        # whether is True or False, the attention weights will be returned
+        if return_attention_weights == False:
+            x = self.conv1(x, edge_index) + self.lin1(x)
+            x = self.ln(x)
+            x = x.relu()
+            x = self.conv2(x, edge_index) + self.lin2(x)
+            return x
+        else:
+            x = self.conv1(x, edge_index, return_attention_weights) + self.lin1(x)
+            x = self.ln(x)
+            x = x.relu()
+            x = self.conv2(x, edge_index, return_attention_weights) + self.lin2(x)
+            return x
 
 
 class GraphCrossAttn(nn.Module):
@@ -63,14 +72,14 @@ class GraphCrossAttn(nn.Module):
         reg_loss += torch.norm(self.prot_embedding.weight, 2)
         return reg_loss
         
-    def forward(self, data, preserve_prob=0.5, permute=False):
+    def forward(self, data, preserve_prob=0.5, permute=False, return_attention_weights=False):
         rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
         prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
         x_input = torch.cat([rna_embedding, prot_embedding], dim=1)
 
         # mask prediction task for the input
         for block in self.cross_attn_blocks:
-            x = block(x_input, data.edge_index)
+            x = block(x_input, data.edge_index, return_attention_weights)
         x = self.cross_attn_agg(x)
         embedding = x.relu()
 
