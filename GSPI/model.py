@@ -7,10 +7,10 @@ class GraphAttnBlock(nn.Module):
     """Graph attention block. Contains two GATConv layers and skip connection."""
     def __init__(self, channel_in, channel_out, heads=4, dropout=0.2):
         super().__init__()
-        self.conv1 = GATConv((-1, -1), channel_in, heads=heads, dropout=0.2, add_self_loops=False)
+        self.conv1 = GATConv((-1, -1), channel_in, heads=heads, dropout=dropout, add_self_loops=False)
         self.lin1 = Linear(-1, channel_in * heads)
         self.ln = nn.LayerNorm(channel_in * heads)
-        self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=0.2, add_self_loops=False)
+        self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=dropout, add_self_loops=False)
         self.lin2 = Linear(-1, channel_out * heads)
 
     def forward(self, x, edge_index, return_attention_weights=False):
@@ -31,13 +31,31 @@ class GraphAttnBlock(nn.Module):
 
 
 class GraphCrossAttn(nn.Module):
-    def __init__(self, rna_input_dim, prot_input_dim, hidden_dim, embedding_dim, heads=4, num_blocks=2, dropout=0.2):
+    def __init__(
+            self, 
+            rna_input_dim, 
+            prot_input_dim, 
+            hidden_dim, 
+            embedding_dim, 
+            heads=4, 
+            num_blocks=2, 
+            dropout=0.2,
+            GAT_encoding=False,
+        ):
         super().__init__()
         self.rna_input_dim = rna_input_dim
         self.prot_input_dim = prot_input_dim
-        # encoding
-        self.rna_embedding = Linear(rna_input_dim, embedding_dim)
-        self.prot_embedding = Linear(prot_input_dim, embedding_dim)
+
+        if GAT_encoding:
+            # GAT encoding
+            self.rna_embedding = GATConv((-1, -1), embedding_dim, heads=heads, 
+                                            dropout=dropout, add_self_loops=False)
+            self.prot_embedding = GATConv((-1, -1), embedding_dim, heads=heads, 
+                                            dropout=dropout, add_self_loops=False)
+        else:
+            # encoding
+            self.rna_embedding = Linear(rna_input_dim, embedding_dim)
+            self.prot_embedding = Linear(prot_input_dim, embedding_dim)
         self.cross_attn_blocks = nn.ModuleList()
         for i in range(num_blocks):
             if i == 0:

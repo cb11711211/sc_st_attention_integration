@@ -29,11 +29,43 @@ For proteomics data, implement the centering and log transformation.
 Using the TOTALVI, WNN, MOFA+ and our own method to integrate the data.
 
 ## 4. DE analysis
-Implement DE analysis based on the embedding of the integrated data. 
+Implement DE analysis based on the embedding of the integrated data. The differential expressed genes in different spatial regions and sub-clusters indicate the enriched cell types.
 
-## 5. Imputation analysis
+## 5. Denoising analysis
+Comparing the denoised counts and original counts, evaluating the performance of GCAT in denoising.
 
 ## 6. Clustering analysis
+The clustering analysis is the main part to evaluate the performance of the GCAT model.
+The metrics used to account for the clustering evaluation including: Homogeneity score, Sillueitte score, and mutual information. 
+
+The V-measure is the harmonic mean between homogeneity and completeness
+`$$v = (1 + beta) * homogeneity * completeness / (beta * hemogeneity + completeness)$$`
+
+Homogeneity score:
+A clustering result satisfies homogeneity values of the labels: a permutation of the class or cluster label values won't change the score value in anyway
+
+Completeness: 
+Symmetrical to homogeneity, a clustering result satisfies completeness if all the data points that are members of a given class are elements of the same cluster.
+
+Silhouette score:
+Compute the mean Silhouette Coefficient of all samples.
+The mean intra-cluster distance (a) and the mean nearest-cluster distance (b) for each sample.
+`(b - a) / max(a, b)`
+
+Adjusted Rand index (ARI)
+Measures the similarity of the two assignments, ignoring permutations and with chance normalization.
+`ARI = (RI - E[RI]) / (max(RI) - E[RI])`
+
+Normalized Mutual Information (NMI) and Adjusted Mutual Information (AMI)
+Measures the agreement of the two assignments, ignoring permutations.
+`NMI(U, V) = MI(U, V) / mean(H(U), H(V))`
+`AMI = (MI - E[MI]) / (mean(H(U), H(V)) - E[MI] )`
+
+Calinski-Harabasz index (Variance Ratio Criterion)
+The index is the ratio of the sum of between-clusters dispersion and of within-cluster dispersion for all clusters (where dispersion is defined as the sum of distances squared)
+
+Davies-Bouldin Index
+This index signifies the average 'similarity' between clusters, where the similarity is a measure that compares the distance between clusters with the size of the clusters themselves.
 
 ## 7. Spatial CITE-seq Fine-tuning
 There are three types of fine-tune strategy:

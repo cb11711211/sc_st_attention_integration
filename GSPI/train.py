@@ -36,6 +36,7 @@ class Trainer():
         alpha: float=0.499,
         beta: float=0.499,
         lambda_reg: float=1e-5,
+        GAT_encoding: bool=False
     ):
         self.data = data
         self.model_choice = model_choice
@@ -57,6 +58,7 @@ class Trainer():
         self.alpha = alpha
         self.beta = beta
         self.lambda_reg = lambda_reg
+        self.GAT_encoding = GAT_encoding
         self.train_losses = []
         self.val_losses = []
         self.best_split = None
@@ -88,10 +90,17 @@ class Trainer():
 
     def calculate_loss(self, masked_batch, train_mask):
         """Calculate the loss for the model"""
-        results = self.model(masked_batch, permute=self.permute, preserve_prob=self.preserve_rate)
+        results = self.model(
+            masked_batch, 
+            permute=self.permute, 
+            preserve_prob=self.preserve_rate,
+            return_attention_weights=self.return_attention_weights
+            )
         rna_recon = results["rna_recon"][train_mask]
         prot_recon = results["prot_recon"][train_mask]
         embedding = results["embedding"][train_mask]
+        if self.return_attention_weights:
+            self.attention_weights = results["attention_weights"]
 
         loss = self.alpha * self.masked_value_loss(
             rna_recon,
@@ -176,6 +185,7 @@ class Trainer():
                 embedding_dim=self.embedding_dim,
                 heads=self.heads,
                 num_blocks=self.num_blocks,
+                GAT_encoding=self.GAT_encoding,
             ).to(self.device)
         elif self.model_choice == "Spatial Graph Cross Attention":
             self.model = GraphCrossAttn_spatial_encoding(
@@ -295,6 +305,21 @@ class Trainer():
         with torch.no_grad():
             results = self.best_model(graphData)
         return results["embedding"].cpu().numpy()
+
+    def get_attention_weights(
+        self,
+        graphData: Data
+        ):
+        """
+        Generate the attention weights for attention weights
+        Params:
+            graphData: torch_geometric.data.Data
+        """
+        self.bets_model.eval()
+        with torch.no_grad():
+            results = self.best_model(graphData)
+        return results["attention_weights"].cpu().numpy()
+
 
     def plot_losses_curve(
             self, 
