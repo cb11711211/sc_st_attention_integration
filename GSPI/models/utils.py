@@ -3,10 +3,7 @@ import numpy as np
 import pandas as pd
 import scanpy as sc
 import anndata as ad
-from scipy import spatial
 import scipy.sparse as sp
-import matplotlib.pyplot as plt
-import seaborn as sns
 import muon as mu
 import torch
 from sklearn.metrics import mean_squared_error, silhouette_score

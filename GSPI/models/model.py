@@ -1,16 +1,16 @@
 import torch
 import torch.nn as nn
 from torch_geometric.nn import GATConv, Linear
-from utils import permute_node
+from .utils import permute_node
 
 class GraphAttnBlock(nn.Module):
     """Graph attention block. Contains two GATConv layers and skip connection."""
     def __init__(self, channel_in, channel_out, heads=4, dropout=0.2):
         super().__init__()
-        self.conv1 = GATConv((-1, -1), channel_in, heads=heads, dropout=dropout, add_self_loops=False)
+        self.conv1 = GATConv(-1, channel_in, heads=heads, dropout=dropout, add_self_loops=False)
         self.lin1 = Linear(-1, channel_in * heads)
         self.ln = nn.LayerNorm(channel_in * heads)
-        self.conv2 = GATConv((-1, -1), channel_out, heads=heads, dropout=dropout, add_self_loops=False)
+        self.conv2 = GATConv(-1, channel_out, heads=heads, dropout=dropout, add_self_loops=False)
         self.lin2 = Linear(-1, channel_out * heads)
 
     def forward(self, x, edge_index, return_attention_weights=False):
@@ -41,16 +41,19 @@ class GraphCrossAttn(nn.Module):
             num_blocks=2, 
             dropout=0.2,
             GAT_encoding=False,
+            return_attention_weights=False,
         ):
         super().__init__()
         self.rna_input_dim = rna_input_dim
         self.prot_input_dim = prot_input_dim
+        self.GAT_encoding = GAT_encoding
+        self.return_attention_weights = return_attention_weights
 
         if GAT_encoding:
             # GAT encoding
-            self.rna_embedding = GATConv((-1, -1), embedding_dim, heads=heads, 
+            self.rna_embedding = GATConv(-1, embedding_dim, heads=heads, 
                                             dropout=dropout, add_self_loops=False)
-            self.prot_embedding = GATConv((-1, -1), embedding_dim, heads=heads, 
+            self.prot_embedding = GATConv(-1, embedding_dim, heads=heads, 
                                             dropout=dropout, add_self_loops=False)
         else:
             # encoding
@@ -86,13 +89,34 @@ class GraphCrossAttn(nn.Module):
 
     def regularization_loss(self):
         reg_loss = 0
-        reg_loss += torch.norm(self.rna_embedding.weight, 2)
-        reg_loss += torch.norm(self.prot_embedding.weight, 2)
+        for param in self.parameters():
+            reg_loss += torch.norm(param, p=2)
         return reg_loss
         
     def forward(self, data, preserve_prob=0.5, permute=False, return_attention_weights=False):
-        rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
-        prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
+        if self.GAT_encoding and self.return_attention_weights:
+            rna_embedding, rna_attention_weight = self.rna_embedding(
+                    data.x[:, :self.rna_input_dim],
+                    data.edge_index,
+                    return_attention_weights=True,
+                )
+            prot_embedding, protein_attention_weight = self.prot_embedding(
+                    data.x[:, self.rna_input_dim:],
+                    data.edge_index,
+                    return_attention_weights=True,
+                )
+        elif self.GAT_encoding:
+            rna_embedding = self.rna_embedding(
+                    data.x[:, :self.rna_input_dim],
+                    data.edge_index,
+                )
+            prot_embedding = self.prot_embedding(
+                    data.x[:, self.rna_input_dim:],
+                    data.edge_index,
+                )
+        else:
+            rna_embedding = self.rna_embedding(data.x[:, :self.rna_input_dim])
+            prot_embedding = self.prot_embedding(data.x[:, self.rna_input_dim:])
         x_input = torch.cat([rna_embedding, prot_embedding], dim=1)
 
         # mask prediction task for the input
@@ -121,6 +145,9 @@ class GraphCrossAttn(nn.Module):
         }
         if permute:
             results["embedding_perm"] = embedding_perm
+        if self.GAT_encoding and self.return_attention_weights:
+            results["rna_attention_weight"] = rna_attention_weight
+            results["protein_attention_weight"] = protein_attention_weight
 
         return results
 

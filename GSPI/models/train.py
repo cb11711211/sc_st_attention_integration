@@ -1,17 +1,14 @@
 import os
-import scipy as sp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from muon import MuData
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.nn.parallel import distributed as dist
 from torch_geometric.data import Data
 from torch_geometric.loader import NeighborLoader
 
-from model import GraphCrossAttn, GraphCrossAttn_spatial_encoding
-from dataset import create_graphData
+from .model import GraphCrossAttn, GraphCrossAttn_spatial_encoding
 
 class Trainer():
     def __init__(
@@ -36,7 +33,8 @@ class Trainer():
         alpha: float=0.499,
         beta: float=0.499,
         lambda_reg: float=1e-5,
-        GAT_encoding: bool=False
+        GAT_encoding: bool=False,
+        return_attention_weights: bool=False,
     ):
         self.data = data
         self.model_choice = model_choice
@@ -62,6 +60,7 @@ class Trainer():
         self.train_losses = []
         self.val_losses = []
         self.best_split = None
+        self.return_attention_weights = return_attention_weights
 
     def mask_input(self, batch, mask_ratio):
         """Random mask the input data"""
@@ -81,12 +80,24 @@ class Trainer():
 
     def contrastive_loss(self, embedding, embedding_perm):
         """Define the loss function for contrastive learning"""
-        embedding = F.log_softmax(embedding, dim=1)
+        embedding = F.softmax(embedding, dim=1)
         embedding_perm = F.softmax(embedding_perm, dim=1)
         def KL_divergence(p, q):
-            return torch.sum(p * torch.log(p + 1e-6 / q + 1e-6))
+            # print(torch.sum(p * torch.log(p + 1e6 / q + 1e6)))
+            return torch.sum(p * torch.log(p + 1e6 / q + 1e6))
         KL_div = KL_divergence(embedding, embedding_perm).mean()
         return KL_div
+    
+    # define OT contrastive loss
+    def ot_contrastive_loss(self, embedding, embedding_perm):
+        """Using OT distance for the contrastive learning"""
+        
+        embedding = F.log_softmax(embedding, dim=1)
+        embedding_perm = F.softmax(embedding_perm, dim=1)
+        def OT_distance(p, q):
+            return torch.cdist(p, q, p=2)
+        OT_dist = OT_distance(embedding, embedding_perm).mean()
+        return OT_dist
 
     def calculate_loss(self, masked_batch, train_mask):
         """Calculate the loss for the model"""
@@ -111,10 +122,12 @@ class Trainer():
             masked_batch.x[train_mask, self.rna_input_dim:],
             masked_batch.value_mask[train_mask, self.rna_input_dim:]
         )
+        # print(loss)
         
         if self.permute:
             embedding_perm = results["embedding_perm"][train_mask]
             loss += (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding_perm)
+            # print(self.contrastive_loss(embedding, embedding_perm))
 
         return loss
 

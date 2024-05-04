@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import pandas as pd
 import anndata as ad
+from scipy.sparse import csr_matrix
 from torch_geometric.data import Data
 from torch_geometric.transforms import RandomNodeSplit
 
@@ -171,6 +172,10 @@ def get_edge_index(rna_adata, device):
     return edge_index
 
 def get_concatenated_data(rna_adata, protein_adata, device):
+    if isinstance(rna_adata.X, csr_matrix):
+        rna_adata.X = rna_adata.X.toarray()
+    if isinstance(protein_adata.X, csr_matrix):
+        protein_adata.X = protein_adata.X.toarray()
     concat_data = np.concatenate((rna_adata.X, protein_adata.X), axis=1)
     concat_data = torch.tensor(concat_data, dtype=torch.float32).to(device)
     return concat_data
@@ -180,6 +185,17 @@ def create_graphData(rna_adata, protein_adata, device):
     concat_data = get_concatenated_data(rna_adata, protein_adata, device)
     graphData = Data(x=concat_data, edge_index=edge_index)
     return graphData
+
+def create_graphData_mu(mudata, features_use="highly_variable", device="cpu"):
+    """Create graphData from MuData"""
+    if features_use == "highly_variable":
+        rna_adata = mudata["rna"][:, mudata["rna"].var[f"{features_use}"]]
+        protein_adata = mudata["protein"]
+        graphData = create_graphData(rna_adata, protein_adata, device)
+        return graphData, rna_adata.shape[1], protein_adata.shape[1]
+    else:
+        pass
+    return None
 
 def split_data(graphData, num_splits=2, num_val=0.2, num_test=0.2):
     tsf = RandomNodeSplit(num_splits=num_splits, num_val=num_val, num_test=num_test, key=None)
