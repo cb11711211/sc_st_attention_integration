@@ -31,7 +31,7 @@ class Trainer():
         preserve_rate: float=0.5,
         num_splits: int=5,
         alpha: float=0.499,
-        beta: float=0.499,
+        beta: float=1e-4,
         lambda_reg: float=1e-5,
         GAT_encoding: bool=False,
         return_attention_weights: bool=False,
@@ -75,7 +75,7 @@ class Trainer():
         """Define the loss function for masked value prediction"""
         def MSE_loss(pred, target):
             return torch.sum((pred - target) ** 2)
-        loss = MSE_loss(pred[mask], target[mask]) / mask.sum() 
+        loss = MSE_loss(pred[mask], target[mask]) / mask.sum()
         return loss
 
     def contrastive_loss(self, embedding, embedding_perm):
@@ -84,8 +84,8 @@ class Trainer():
         embedding_perm = F.softmax(embedding_perm, dim=1)
         def KL_divergence(p, q):
             # print(torch.sum(p * torch.log(p + 1e6 / q + 1e6)))
-            return torch.sum(p * torch.log(p + 1e6 / q + 1e6))
-        KL_div = KL_divergence(embedding, embedding_perm).mean()
+            return torch.sum(p * torch.log(p + 1e1 / q + 1e1))
+        KL_div = KL_divergence(embedding, embedding_perm).mean() / self.batch_size
         return KL_div
     
     # define OT contrastive loss
@@ -126,7 +126,7 @@ class Trainer():
         
         if self.permute:
             embedding_perm = results["embedding_perm"][train_mask]
-            loss += (1 - self.alpha - self.beta) * self.contrastive_loss(embedding, embedding_perm)
+            loss += self.beta * self.contrastive_loss(embedding, embedding_perm)
             # print(self.contrastive_loss(embedding, embedding_perm))
 
         return loss
