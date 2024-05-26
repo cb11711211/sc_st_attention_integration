@@ -40,6 +40,7 @@ class GraphCrossAttn(nn.Module):
             heads=4, 
             num_blocks=2, 
             dropout=0.2,
+            add_self_loops=False,
             GAT_encoding=False,
             return_attention_weights=False,
         ):
@@ -52,9 +53,9 @@ class GraphCrossAttn(nn.Module):
         if GAT_encoding:
             # GAT encoding
             self.rna_embedding = GATConv(-1, embedding_dim, heads=heads, 
-                                            dropout=dropout, add_self_loops=False)
+                                            dropout=dropout, add_self_loops=add_self_loops)
             self.prot_embedding = GATConv(-1, embedding_dim, heads=heads, 
-                                            dropout=dropout, add_self_loops=False)
+                                            dropout=dropout, add_self_loops=add_self_loops)
         else:
             # encoding
             self.rna_embedding = Linear(rna_input_dim, embedding_dim)

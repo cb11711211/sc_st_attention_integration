@@ -8,6 +8,8 @@ from scipy.sparse import csr_matrix
 from torch_geometric.data import Data
 from torch_geometric.transforms import RandomNodeSplit
 
+from .utils import build_adjacency_matrix, build_adjacency_matrix_torch
+
 # load the dataset and save to a local directory
 def get_gene_dict(adata):
     gene_dict = {}
@@ -166,7 +168,7 @@ class SinglecellData(Data):
         # align the features
 
 def get_edge_index(rna_adata, device):
-    adj_mtx = rna_adata.obsp['connectivities'].toarray()
+    adj_mtx = rna_adata.obsp["connectivities"].toarray()
     edge_index = adj_mtx.nonzero()
     edge_index = torch.tensor(np.array(edge_index), dtype=torch.long).contiguous().to(device)
     return edge_index
@@ -180,22 +182,31 @@ def get_concatenated_data(rna_adata, protein_adata, device):
     concat_data = torch.tensor(concat_data, dtype=torch.float32).to(device)
     return concat_data
 
-def create_graphData(rna_adata, protein_adata, device):
-    edge_index = get_edge_index(rna_adata, device)
+def create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=0.5):
+    if spatial_basis == "spatial":
+        adj_mtx = build_adjacency_matrix_torch(rna_adata.obsm["spatial"], alpha, 
+                                                  T=0.005, device=device)
+        edge_index = adj_mtx.nonzero().T.contiguous().to(device)
+    elif spatial_basis == "expression":   
+        edge_index = get_edge_index(rna_adata, device)
     concat_data = get_concatenated_data(rna_adata, protein_adata, device)
     graphData = Data(x=concat_data, edge_index=edge_index)
     return graphData
 
-def create_graphData_mu(mudata, features_use="highly_variable", device="cpu"):
+
+def create_graphData_mu(mudata, features_use="highly_variable", 
+                        device="cpu", spatial_basis="spatial", alpha=0.5):
     """Create graphData from MuData"""
     if features_use == "highly_variable":
         rna_adata = mudata["rna"][:, mudata["rna"].var[f"{features_use}"]]
         protein_adata = mudata["protein"]
-        graphData = create_graphData(rna_adata, protein_adata, device)
-        return graphData, rna_adata.shape[1], protein_adata.shape[1]
+        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=alpha)
     else:
-        pass
-    return None
+        rna_adata = mudata["rna"]
+        protein_adata = mudata["protein"]
+        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=alpha)
+    return graphData, rna_adata.shape[1], protein_adata.shape[1]
+
 
 def split_data(graphData, num_splits=2, num_val=0.2, num_test=0.2):
     tsf = RandomNodeSplit(num_splits=num_splits, num_val=num_val, num_test=num_test, key=None)
