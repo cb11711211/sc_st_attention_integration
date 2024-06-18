@@ -1,4 +1,3 @@
-from operator import index
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -8,7 +7,6 @@ import muon as mu
 import torch
 from sklearn.metrics import mean_squared_error, silhouette_score
 from scipy.sparse import coo_matrix
-
 from scipy.stats import ks_2samp
 
 def construct_spatial_adata(data_path, rna_data, prot_data):
@@ -334,20 +332,92 @@ def measurement_mixing_metric(measurements, labels):
     return metric
 
 
+# Function to get the spatial coherence score
+def spatial_coherence_score(spatial_coordinates, labels, distance_threshold = 4.0):
+    def calculate_adjacency_matrix_torch(labels, adjacency, device):
+        labels = torch.tensor(labels.astype(int), device=device)
+        adjacency = torch.tensor(adjacency, dtype=torch.int32, device=device)
+        labels_i = labels.unsqueeze(1)
+        labels_j = labels.unsqueeze(0)
+        label_agreement = (labels_i == labels_j) & (adjacency == 1)
+        return label_agreement.int()
+    
+    def compute_label_agreement(labels, adjacency):
+        labels = labels.detach().clone()
+        adjacency = adjacency.detach().clone()
+        labels_i = labels.unsqueeze(1)
+        labels_j = labels.unsqueeze(0)
+        label_agreement = (labels_i == labels_j) & (adjacency == 1)
+        return label_agreement
+    
+    def calculate_spatial_coherence(label_agreement):
+        total_neighbors = label_agreement.sum(dim=1)
+        # calculate the number of possible neighbors for each cell
+        possible_neighbors = label_agreement.sum(dim=1).float() + 1
+        coherence_scores = total_neighbors.float() / possible_neighbors
+        return coherence_scores # shape: (num_cells,)
+    
+    def calculate_expected_coherence(labels, adjacency, num_shuffles, device):
+        original_labels = torch.tensor(labels.astype(int), device=device)
+        adjacency = adjacency.detach().clone().to(device)
+        coherence_scores_all = []
+        for _ in range(num_shuffles):
+            shuffled_labels = original_labels[torch.randperm(len(original_labels))]
+            label_agreement = compute_label_agreement(shuffled_labels, adjacency)
+            coherence_scores = calculate_spatial_coherence(label_agreement)
+            coherence_scores_all.append(coherence_scores)
+
+        # convert the list of tensors to a single tensor
+        coherence_scores_all = torch.stack(coherence_scores_all)
+        expected_coherence_scores = coherence_scores_all.mean(dim=0)
+        return expected_coherence_scores
+    
+    # calculate the pairwise Euclidean distances using broadcasting
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    spatial_coordinates = torch.tensor(spatial_coordinates, dtype=torch.float32, device=device)
+    diff = spatial_coordinates[:, None, :] - spatial_coordinates[None, :, :]
+    distances = torch.sqrt(torch.sum(diff**2, dim=-1))
+    adjacency = distances < distance_threshold
+    label_agreement = calculate_adjacency_matrix_torch(labels, adjacency, device)
+    coherence_score = calculate_spatial_coherence(label_agreement)
+    expected_coherence = calculate_expected_coherence(labels, adjacency, num_shuffles=500, device=device)
+    scale = expected_coherence.max().item() - expected_coherence.min().item()
+    return (coherence_score - expected_coherence.min().item()) / scale
+
+
+def compute_modularity(adjacency_matrix, community_assignment):
+    # Step 1: Compute the Degree Matrix
+    degree_matrix = np.diag(np.sum(adjacency_matrix, axis=1))
+    
+    # Step 2: Compute the Modularity Matrix
+    total_edges = np.sum(adjacency_matrix)
+    expected_edges = np.outer(np.sum(adjacency_matrix, axis=0), np.sum(adjacency_matrix, axis=1)) / total_edges
+    modularity_matrix = adjacency_matrix - expected_edges
+    
+    # Step 3: Define the Community Assignment Matrix
+    num_nodes = len(community_assignment)
+    community_matrix = np.zeros((num_nodes, num_nodes))
+    for i, c_i in enumerate(community_assignment):
+        for j, c_j in enumerate(community_assignment):
+            community_matrix[i, j] = 1 if c_i == c_j else 0
+    
+    # Step 4: Compute the Modularity Score
+    modularity_score = np.trace(np.dot(np.dot(community_matrix, modularity_matrix), community_matrix.T)) / total_edges
+    
+    return modularity_score
+        
+
 # Function to build the weighted adjacency matrix
 def build_adjacency_matrix(spots, alpha, T=0.05):
     # spots = np.array(spots)
     # Calculate the pairwise Euclidean distances using broadcasting
     diff = spots[:, np.newaxis, :] - spots[np.newaxis, :, :]
     distances = np.sqrt(np.sum(diff**2, axis=-1))
-    
     # Apply the exponential decay function to the distances
     W = np.exp(-alpha * distances)
     W[W<T] = 0
-    
     # Zero out the diagonal (no self-connections)
     np.fill_diagonal(W, 0)
-    
     return W
 
 def build_adjacency_matrix_torch(spots, alpha, T=0.005, device='cuda'):
@@ -355,12 +425,9 @@ def build_adjacency_matrix_torch(spots, alpha, T=0.005, device='cuda'):
     # Calculate the pairwise Euclidean distances using broadcasting
     diff = spots[:, None, :] - spots[None, :, :]
     distances = torch.sqrt(torch.sum(diff**2, dim=-1))
-    
     # Apply the exponential decay function to the distances
     W = torch.exp(-alpha * distances)
     W.masked_fill_(W<T, 0)
-    
     # Zero out the diagonal (no self-connections)
     W.fill_diagonal_(0)
-    
     return W

@@ -182,10 +182,15 @@ def get_concatenated_data(rna_adata, protein_adata, device):
     concat_data = torch.tensor(concat_data, dtype=torch.float32).to(device)
     return concat_data
 
-def create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=0.5):
+def create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=0.5, threshold=0.6):
     if spatial_basis == "spatial":
         adj_mtx = build_adjacency_matrix_torch(rna_adata.obsm["spatial"], alpha, 
-                                                  T=0.005, device=device)
+                                                  T=threshold, device=device)
+        edge_index = adj_mtx.nonzero().T.contiguous().to(device)
+    elif spatial_basis == "spatial binary":
+        adj_mtx = build_adjacency_matrix_torch(rna_adata.obsm["spatial"], alpha,
+                                                T=threshold, device=device)
+        adj_mtx.masked_fill_(adj_mtx>0, 1)
         edge_index = adj_mtx.nonzero().T.contiguous().to(device)
     elif spatial_basis == "expression":   
         edge_index = get_edge_index(rna_adata, device)
@@ -195,16 +200,18 @@ def create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=0.5)
 
 
 def create_graphData_mu(mudata, features_use="highly_variable", 
-                        device="cpu", spatial_basis="spatial", alpha=0.5):
+                        device="cpu", spatial_basis="spatial", alpha=0.5, threshold=0.6):
     """Create graphData from MuData"""
     if features_use == "highly_variable":
         rna_adata = mudata["rna"][:, mudata["rna"].var[f"{features_use}"]]
         protein_adata = mudata["protein"]
-        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=alpha)
+        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, 
+                                     device, alpha=alpha, threshold=threshold)
     else:
         rna_adata = mudata["rna"]
         protein_adata = mudata["protein"]
-        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, device, alpha=alpha)
+        graphData = create_graphData(rna_adata, protein_adata, spatial_basis, 
+                                     device, alpha=alpha, threshold=threshold)
     return graphData, rna_adata.shape[1], protein_adata.shape[1]
 
 
